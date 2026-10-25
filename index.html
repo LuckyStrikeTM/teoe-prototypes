@@ -64,6 +64,7 @@
 </header>
 
 <div class="tabs" id="tabs"></div>
+<div class="tabs" id="starPick" style="padding-top:0;padding-bottom:0"></div>
 
 <div class="wrap">
   <div class="left">
@@ -71,7 +72,7 @@
     <div class="legend">
       ◆ флот, его сенсорная сеть (веер ±24°) и <b>маневренный веер</b> — голубые секторы на кольцах: куда дотянутся спирали (шире по вращению; риска — самый дорогой прямой курс) · ● планеты · ◇ добыча (кредиты/ход) ·
       × обломки (скрыты до прохода сети) · ▲ аномалия (исчезает) · ⟦ ⟧ гейты с ETA верхом · <b>красные секторы — угрозы</b>: клик — атака (автопобеда), бой съедает остаток хода · <b>коричневый крап — астероидный поток (+1 МП/слот), зелёная дуга — ровный фарватер (−1)</b>: рельеф дрейфует с кольцом ·
-      смена кольца — <b>спираль</b>: прямой курс 6 МП, по вращению до +30° — от 3 МП, против — до 8 ·
+      <b>центральный объект — архетип системы</b>: чёрная дыра (падать −1/полоса, бежать +1, удержание 5, добыча ×1.5) · нейтронная (сенсор ×2, банк не копится) · горячая (ветер: внешние кольца +5/ход, против ветра +1 МП/слот, сенсор ×0.75) ·
       ползунок — «призраки» будущего (+k ходов, доска детерминирована). Клик по своему кольцу —
       прыжок по кольцу, по любому другому — спиральный переход (каждая полоса — своя цена и свои мосты),
       по гейту под флотом — отвал.
@@ -82,6 +83,7 @@
     <div class="panel">
       <h2>Состояние хода</h2>
       <div class="kv"><span>Ход</span><b id="stTurn"></b></div>
+      <div class="kv"><span>Звезда</span><b id="stStar"></b></div>
       <div class="kv"><span>Флот</span><b id="stFleet"></b></div>
       <div class="kv"><span>Режим</span><b id="stMode"></b></div>
       <div class="kv"><span>Манёвр</span><b class="pips" id="stMp"></b></div>
@@ -123,7 +125,10 @@
      со своим темпом; «верхом» = бесплатно ехать с конвейером кольца;
      «держаться» = 1 МП; прыжок по кольцу 1/слот по вращению, 2 — против;
      смена кольца 2 МП на ближайший по углу слот; гейты — мировые слоты
-     внешнего кольца; сенсор/забор — бесплатно при перекрытии сети (±24°).
+     внешнего кольца; сенсор/забор — бесплатно при перекрытии сети (±24°);
+     рельеф (v8): астероиды +1 МП/слот, фарватер −1 — дрейфует с кольцом;
+     центральный объект (v9): архетип системы гнёт глобальные правила
+     (цены, темпы, сенсор, банк, доход).
      ============================================================ -->
 <script id="board-model">
 window.BoardModel = (function () {
@@ -188,6 +193,27 @@ window.BoardModel = (function () {
     return best;
   };
 
+  /// Центральный объект (v9): архетип системы. Гнёт не слоты, а сами
+  /// правила — цены, темпы, сенсор, банк, доход. Движение и не только.
+  /// calm — база; blackhole — падать дёшево, бежать дорого, держаться
+  /// дорого, добыча богаче; pulsar — всё видно, но банк не копится;
+  /// hot — ветер разгоняет внешний конвейер и дует в лицо против вращения.
+  const STAR_KINDS = {
+    calm:      { name: 'Спокойная звезда',  hint: 'базовые правила' },
+    blackhole: { name: 'Чёрная дыра',
+                 hint: 'падать −1/полоса, бежать +1/полоса · удержание 5 · добыча ×1.5',
+                 crossIn: -1, crossOut: +1, hold: 5, incomeMul: 1.5 },
+    pulsar:    { name: 'Нейтронная звезда',
+                 hint: 'сенсор ×2 (±48°) · копилка не копится (кап 18)',
+                 reachMul: 2, bankMul: 1 },
+    hot:       { name: 'Горячая звезда',
+                 hint: 'ветер: внешние кольца +5/ход, против ветра +1 МП/слот · сенсор ×0.75',
+                 tempoAdd: { 0: 5, 1: 5 }, againstAdd: { 0: 1, 1: 1 }, reachMul: 0.75 },
+  };
+  const starMods = s => STAR_KINDS[s.star.kind] || STAR_KINDS.calm;
+  const sensorReach = s => REACH * (starMods(s).reachMul || 1);
+  const holdCost = s => starMods(s).hold != null ? starMods(s).hold : COST.HOLD;
+
   /// Мосты полосы bandId: планеты её граничных колец, на ходу +k.
   function fordsOf(s, bandId, k = 0) {
     const out = [];
@@ -222,11 +248,15 @@ window.BoardModel = (function () {
       ? COST.CROSS - Math.floor(dband * DEG / 10 + 1e-9)   // каждые полные 10° по вращению: −1
       : COST.CROSS + Math.floor(-dband * DEG / 7.5 + 1e-9); // каждые полные 7.5° против: +1
     const dir = Math.sign(toRing - s.fleet.ring);
+    // Центральный объект: чёрная дыра — падать внутрь дешевле (dir>0 —
+    // к звезде, номера колец растут к центру), бежать наружу дороже.
+    const sm = starMods(s);
+    const starToll = dir > 0 ? (sm.crossIn || 0) : (sm.crossOut || 0);
     let cost = 0, bodies = [];
     for (let i = 0; i < n; i++) {
       const bandId = dir > 0 ? s.fleet.ring + i : toRing + i;
       const midA = modAngle(fa + dband * (i + 0.5));
-      let c = base;
+      let c = base + starToll;
       for (const fr of fordsOf(s, bandId)) {
         if (angDist(midA, fr.angle) <= fr.half) {
           c = Math.max(1, c - fr.body.mass);
@@ -271,9 +301,13 @@ window.BoardModel = (function () {
 
   function makeSystem(opts) {
     const withTerrain = !(opts && opts.terrain === false);
+    const starKind = (opts && opts.star) || 'calm';
+    const sm = STAR_KINDS[starKind] || STAR_KINDS.calm;
     return {
       turn: 0,
-      rings: RINGS.map(r => Object.assign({}, r)),
+      star: { kind: starKind },
+      rings: RINGS.map(r => Object.assign({}, r,
+        { tempo: r.tempo + ((sm.tempoAdd && sm.tempoAdd[r.id]) || 0) })),
       terrains: withTerrain ? [
         { id: 'T1', kind: 'asteroids', ring: 2, slot: 30, span: 6 },
         { id: 'T2', kind: 'fairway',   ring: 1, slot: 30, span: 5 },
@@ -331,7 +365,10 @@ window.BoardModel = (function () {
   const hopAlongCost = (s, delta, fromSlot) => {
     const r = s.rings[s.fleet.ring];
     if (fromSlot == null) fromSlot = s.fleet.slot;
-    const per = Math.sign(delta) === Math.sign(r.tempo) ? COST.WITH : COST.AGAINST;
+    const sm = starMods(s);
+    const per = Math.sign(delta) === Math.sign(r.tempo)
+      ? COST.WITH
+      : COST.AGAINST + ((sm.againstAdd && sm.againstAdd[s.fleet.ring]) || 0);
     const step = Math.sign(delta);
     let cost = 0;
     for (let i = 1; i <= Math.abs(delta); i++) {
@@ -357,12 +394,12 @@ window.BoardModel = (function () {
     for (const o of s.objects) {
       if (o.gone || o.taken) continue;
       const d = angDist(fa, slotAngle(s, o.ring, o.slot));
-      if (!o.revealed && d <= REACH) {
+      if (!o.revealed && d <= sensorReach(s)) {
         o.revealed = true;
         events.push({ type: 'revealed', msg: 'Сеть вскрыла: ' + o.name });
       }
       if (o.kind === 'deposit') continue; // доход — в конце хода
-      if (o.revealed && !o.taken && d <= REACH) {
+      if (o.revealed && !o.taken && d <= sensorReach(s)) {
         o.taken = true;
         s.credits += o.bonus;
         events.push({ type: 'collected', msg: o.name + ': +' + o.bonus + ' кредитов' });
@@ -370,7 +407,7 @@ window.BoardModel = (function () {
     }
     for (const h of s.hostiles) {
       if (!h.alive || h.revealed) continue;
-      if (angDist(fa, threatAngle(s, h)) <= REACH) {
+      if (angDist(fa, threatAngle(s, h)) <= sensorReach(s)) {
         h.revealed = true;
         events.push({ type: 'threat-revealed', msg: 'Сеть вскрыла угрозу: ' + h.name + ' (прочность ' + h.power + ')' });
       }
@@ -463,6 +500,7 @@ window.BoardModel = (function () {
   }
 
   function endTurn(s) {
+    const sm = starMods(s);
     if (s.fleet.departed) return [{ type: 'noop', msg: 'Флот уже ушёл из системы.' }];
     const ev = [];
     for (const o of s.objects) {
@@ -481,9 +519,9 @@ window.BoardModel = (function () {
     if (f.riding) {
       f.slot = mod(f.slot + r.tempo, r.slots);
       ev.push({ type: 'conveyed', msg: 'Кольцо подвезло: слот ' + f.slot + ' (бесплатно)' });
-    } else if (f.mp >= COST.HOLD) {
-      f.mp -= COST.HOLD;
-      ev.push({ type: 'held', msg: 'Удержание позиции: −' + COST.HOLD + ' МП (слот ' + f.slot + ')' });
+    } else if (f.mp >= holdCost(s)) {
+      f.mp -= holdCost(s);
+      ev.push({ type: 'held', msg: 'Удержание позиции: −' + holdCost(s) + ' МП (слот ' + f.slot + ')' });
     } else {
       f.riding = true;
       f.slot = mod(f.slot + r.tempo, r.slots);
@@ -500,7 +538,7 @@ window.BoardModel = (function () {
     const fa = fleetAngle(s);
     for (const o of s.objects) {
       if (o.kind === 'deposit' && o.revealed && !o.gone &&
-          angDist(fa, slotAngle(s, o.ring, o.slot)) <= REACH) income += o.rate;
+          angDist(fa, slotAngle(s, o.ring, o.slot)) <= sensorReach(s)) income += Math.round(o.rate * (sm.incomeMul || 1));
     }
     if (income > 0) {
       s.credits += income;
@@ -510,7 +548,7 @@ window.BoardModel = (function () {
     s.turn++;
     // Копилка: неистраченный манёвр переносится (до 2× притока). Ожидание
     // окна — накопление на рывок, а не потерянный бюджет.
-    const cap = f.mpMax * MP_BANK;
+    const cap = f.mpMax * (sm.bankMul != null ? sm.bankMul : MP_BANK);
     const banked = Math.min(f.mp + f.mpMax, cap);
     if (banked > f.mpMax && f.mp > 0) {
       ev.push({ type: 'bank', msg: 'Манёвр: ' + banked + '/' + cap + ' (копилка)' });
@@ -630,7 +668,7 @@ window.BoardModel = (function () {
       const fs = f.riding ? tokenSlotAt(s, f.ring, f.slot, k) : f.slot;
       const fa = slotAngle(s, f.ring, fs);
       const ta = slotAngle(s, obj.ring, tokenSlotAt(s, obj.ring, obj.slot, k));
-      if (angDist(fa, ta) <= REACH) return { turns: k, sameRing };
+      if (angDist(fa, ta) <= sensorReach(s)) return { turns: k, sameRing };
     }
     return { turns: null, sameRing,
       msg: sameRing ? 'одно кольцо: верхом не сблизиться — только прыжками' : 'за 12 ходов не сойдётся' };
@@ -677,7 +715,7 @@ window.BoardModel = (function () {
            slotAngle, tokenSlotAt, fleetAngle, shortestDelta, crossLanding,
            gateEta, targetEta, transitAuto, depart,
            fordsOf, fordHalfWidth, fordCost, crossCost, crossCostAt, CROSS_WIN, fordEta,
-           TERRAIN_KINDS, terrainAt, slotNearest,
+           TERRAIN_KINDS, terrainAt, slotNearest, STAR_KINDS, starMods, sensorReach, holdCost,
            threatAt, threatAngle, THREAT_ZONE, attack, attackPlan, attackEta,
            angDist, mod };
 })();
@@ -693,6 +731,7 @@ window.BoardModel = (function () {
   const tooltip = document.getElementById('tooltip');
   const toastEl = document.getElementById('toast');
   let state = null;
+  let freeStar = 'calm';  // центральный объект свободной игры (v9)
   let scrub = 0;
   let hover = null;      // {ringId, slot, x, y}
   let scenario = null;   // активный сценарий
@@ -703,7 +742,7 @@ window.BoardModel = (function () {
     {
       id: 'free', title: 'Свободная игра',
       desc: 'Езжай куда хочешь. Ховер по слотам показывает цены и расписания, ползунок — будущее.',
-      setup: () => m.makeSystem(),
+      setup: () => m.makeSystem({ star: freeStar }),
       steps: () => [],
       assert: () => false,
     },
@@ -838,6 +877,29 @@ window.BoardModel = (function () {
       ],
       assert: s => s.fleet.ring === 3 && s.fleet.slot === 27 && s.fleet.mp === 17,
     },
+    {
+      id: 's8', title: '8 · Чёрная дыра',
+      desc: 'Центральный объект гнёт правила. Дыра: падать внутрь −1 МП/полоса, бежать наружу +1, удержание 5 МП, добыча ×1.5. Дешёвое падение — залог дорогого побега.',
+      setup: () => {
+        const s = m.makeSystem({ star: 'blackhole', terrain: false });
+        s.fleet.ring = 1; s.fleet.slot = 25;
+        return s;
+      },
+      steps: s => [
+        { label: 'Падение: 2 полосы вниз за 10 МП', note: 'Гравитация помогает: каждая полоса к звезде −1 (5 вместо 6). Прямой курс, посадка — слот 15.',
+          act: st => m.hopCross(st, 3, 15) },
+        { label: 'Побег сразу? Нужно 14 — не хватает', allowFail: true,
+          note: 'Наружу каждая полоса +1 (7 вместо 6). Остаток 8 МП — дыра не отпускает за один ход. Отказ — часть урока: идём копить.',
+          act: st => m.hopCross(st, 1) },
+        { label: 'Держаться у дыры: −5 МП (не 3!)', note: 'Удержание против гравитации дороже. После хода в банке 21.',
+          act: st => { m.setRiding(st, false); return m.endTurn(st); } },
+        { label: 'Побег диагональю через гравмост: 7 МП', note: 'Закладываем дугу +30° — и попадаем на мост Гиганта V (полоса за 1). Побег дорог, но планета сбрасывает цену.',
+          act: st => m.hopCross(st, 1, 30) },
+        { label: 'Ход: уходим верхом, банк 32', note: 'Станция уже накрыла бы стоячего — едь дальше. Добыча у дыры, кстати, ×1.5 (свободная игра).',
+          act: st => { m.setRiding(st, true); return m.endTurn(st); } },
+      ],
+      assert: s => s.fleet.ring === 1 && s.fleet.slot === 42 && s.fleet.mp === 32 && s.hostiles[0].alive,
+    },
   ];
 
   // ---------- утилиты оболочки ----------
@@ -853,7 +915,7 @@ window.BoardModel = (function () {
     let inc = 0;
     for (const o of s.objects) {
       if (o.kind === 'deposit' && o.revealed && !o.gone &&
-          m.angDist(fa, m.slotAngle(s, o.ring, o.slot)) <= m.REACH) inc += o.rate;
+          m.angDist(fa, m.slotAngle(s, o.ring, o.slot)) <= m.sensorReach(s)) inc += Math.round(o.rate * (m.starMods(s).incomeMul || 1));
     }
     return inc;
   }
@@ -863,8 +925,12 @@ window.BoardModel = (function () {
     document.getElementById('stTurn').textContent = s.turn;
     document.getElementById('stFleet').textContent =
       'кольцо ' + f.ring + ' · слот ' + f.slot + (f.departed ? ' · ушёл' : '');
-    document.getElementById('stMode').textContent = f.riding ? 'верхом (бесплатно)' : 'удержание (3 МП/ход)';
-    const cap = f.mpMax * 2;
+    const sm = m.starMods(s);
+    document.getElementById('stStar').innerHTML = '<b>' + sm.name + '</b>' +
+      ' <span style="color:#8fa0b8;font-weight:400">' + sm.hint + '</span>';
+    document.getElementById('stMode').textContent = f.riding ? 'верхом (бесплатно)' : 'удержание (' + m.holdCost(s) + ' МП/ход)';
+    document.getElementById('btnHold').textContent = 'Держаться (' + m.holdCost(s) + ' МП)';
+    const cap = f.mpMax * (sm.bankMul != null ? sm.bankMul : 2);
     document.getElementById('stMp').innerHTML =
       f.mp + ' МП <span style="color:#8fa0b8;font-weight:400">(+' + f.mpMax + '/ход · банк до ' + cap + ')</span>';
     document.getElementById('stCredits').textContent = s.credits;
@@ -944,11 +1010,43 @@ window.BoardModel = (function () {
   function draw() {
     const s = state;
     ctx.clearRect(0, 0, cv.width, cv.height);
-    // звезда
-    const g = ctx.createRadialGradient(CX, CY, 4, CX, CY, 70);
-    g.addColorStop(0, '#ffd27a'); g.addColorStop(0.25, '#b8862f'); g.addColorStop(1, 'rgba(20,26,36,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(CX, CY, 70, 0, m.TAU); ctx.fill();
+    // центральный объект: архетип системы (v9)
+    const sk = s.star.kind;
+    if (sk === 'blackhole') {
+      const gbh = ctx.createRadialGradient(CX, CY, 24, CX, CY, 90);
+      gbh.addColorStop(0, 'rgba(150,90,230,0.30)'); gbh.addColorStop(1, 'rgba(20,26,36,0)');
+      ctx.fillStyle = gbh;
+      ctx.beginPath(); ctx.arc(CX, CY, 90, 0, m.TAU); ctx.fill();
+      ctx.fillStyle = '#04050a';
+      ctx.beginPath(); ctx.arc(CX, CY, 22, 0, m.TAU); ctx.fill();
+      ctx.strokeStyle = '#c77dff'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(CX, CY, 26, 0, m.TAU); ctx.stroke();
+    } else if (sk === 'pulsar') {
+      const ph = s.turn * 0.7;
+      ctx.strokeStyle = 'rgba(230,240,255,0.30)'; ctx.lineWidth = 4;
+      for (const da of [0, Math.PI]) {
+        const ba = ph + da;
+        ctx.beginPath();
+        ctx.moveTo(CX + Math.cos(ba) * 12, CY + Math.sin(ba) * 12);
+        ctx.lineTo(CX + Math.cos(ba) * 72, CY + Math.sin(ba) * 72);
+        ctx.stroke();
+      }
+      const gps = ctx.createRadialGradient(CX, CY, 2, CX, CY, 42);
+      gps.addColorStop(0, '#ffffff'); gps.addColorStop(0.3, '#9db8ff'); gps.addColorStop(1, 'rgba(20,26,36,0)');
+      ctx.fillStyle = gps;
+      ctx.beginPath(); ctx.arc(CX, CY, 42, 0, m.TAU); ctx.fill();
+    } else if (sk === 'hot') {
+      const gh = ctx.createRadialGradient(CX, CY, 4, CX, CY, 95);
+      gh.addColorStop(0, '#ffffff'); gh.addColorStop(0.2, '#9cc9ff');
+      gh.addColorStop(0.5, 'rgba(70,130,220,0.30)'); gh.addColorStop(1, 'rgba(20,26,36,0)');
+      ctx.fillStyle = gh;
+      ctx.beginPath(); ctx.arc(CX, CY, 95, 0, m.TAU); ctx.fill();
+    } else {
+      const g = ctx.createRadialGradient(CX, CY, 4, CX, CY, 70);
+      g.addColorStop(0, '#ffd27a'); g.addColorStop(0.25, '#b8862f'); g.addColorStop(1, 'rgba(20,26,36,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(CX, CY, 70, 0, m.TAU); ctx.fill();
+    }
 
     // межорбитальные полосы: тонировка аннулов + гравмосты планет
     for (let i = 0; i < s.rings.length - 1; i++) {
@@ -1143,9 +1241,10 @@ window.BoardModel = (function () {
       const rr = s.rings[f.ring].radius;
       ctx.strokeStyle = 'rgba(88,166,255,0.5)';
       ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(CX, CY, rr + 18, p.a - m.REACH, p.a + m.REACH); ctx.stroke();
-      ctx.beginPath(); ctx.arc(CX, CY, rr - 18, p.a - m.REACH, p.a + m.REACH); ctx.stroke();
-      for (const da of [-m.REACH, m.REACH]) {
+      const reach = m.sensorReach(s);
+      ctx.beginPath(); ctx.arc(CX, CY, rr + 18, p.a - reach, p.a + reach); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX, CY, rr - 18, p.a - reach, p.a + reach); ctx.stroke();
+      for (const da of [-reach, reach]) {
         ctx.beginPath();
         ctx.moveTo(CX + Math.cos(p.a + da) * (rr - 18), CY + Math.sin(p.a + da) * (rr - 18));
         ctx.lineTo(CX + Math.cos(p.a + da) * (rr + 18), CY + Math.sin(p.a + da) * (rr + 18));
@@ -1401,7 +1500,10 @@ window.BoardModel = (function () {
       b.disabled = i !== stepIdx;
       b.onclick = () => {
         const res = st.act(state);
-        if (res && res.ok === false) { toast(res.msg); return; }
+        if (res && res.ok === false) {
+          toast(res.msg);
+          if (!st.allowFail) return; // отказ — тоже ход истории (S8: «дыра не отпускает»)
+        }
         stepIdx++;
         renderSteps();
         afterAction();
@@ -1437,6 +1539,23 @@ window.BoardModel = (function () {
     tabs.appendChild(b);
   });
 
+  // ---------- выбор центрального объекта (v9): свободная игра ----------
+  // Смена звезды — другая система: сбрасываем доску в свободную игру.
+  const starPick = document.getElementById('starPick');
+  Object.keys(m.STAR_KINDS).forEach(kind => {
+    const b = document.createElement('button');
+    b.textContent = '★ ' + m.STAR_KINDS[kind].name;
+    b.dataset.kind = kind;
+    b.onclick = () => {
+      freeStar = kind;
+      starPick.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.kind === kind));
+      loadScenario('free');
+      toast('Система вокруг: ' + m.STAR_KINDS[kind].name + ' — ' + m.STAR_KINDS[kind].hint);
+    };
+    starPick.appendChild(b);
+  });
+
+  starPick.querySelector('button').classList.add('on');
   loadScenario('free');
 })();
 </script>
