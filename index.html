@@ -65,18 +65,22 @@
 
 <div class="tabs" id="tabs"></div>
 <div class="tabs" id="starPick" style="padding-top:0;padding-bottom:0"></div>
+<div class="tabs" id="fleetPick" style="padding-top:0;padding-bottom:0"></div>
 
 <div class="wrap">
   <div class="left">
     <canvas id="board" width="720" height="720"></canvas>
     <div class="legend">
       ◆ флот, его сенсорная сеть (веер ±24°) и <b>маневренный веер</b> — голубые секторы на кольцах: куда дотянутся спирали (шире по вращению; риска — самый дорогой прямой курс) · ● планеты · ◇ добыча (кредиты/ход) ·
-      × обломки (скрыты до прохода сети) · ▲ аномалия (исчезает) · ⟦ ⟧ гейты с ETA верхом · <b>красные секторы — угрозы</b>: клик — атака (автопобеда), бой съедает остаток хода · <b>коричневый крап — астероидный поток (+1 МП/слот), зелёная дуга — ровный фарватер (−1)</b>: рельеф дрейфует с кольцом ·
-      <b>центральный объект — архетип системы</b>: чёрная дыра (падать −1/полоса, бежать +1, удержание 5, добыча ×1.5) · нейтронная (сенсор ×2, банк не копится) · горячая (ветер: внешние кольца +5/ход, против ветра +1 МП/слот, сенсор ×0.75) ·
-      ползунок — «призраки» будущего (+k ходов, доска детерминирована). Клик по своему кольцу —
-      прыжок по кольцу, по любому другому — спиральный переход (каждая полоса — своя цена и свои мосты),
-      по гейту под флотом — отвал.
-    </div>
+      × обломки (подберёт сенсорная сеть) · ▲ аномалия (исчезает) · ⟦ ⟧ гейт-сектора — 3 слота на внешнем кольце, отвал из любого (v10.9) · <b>красные секторы — угрозы</b>: клик — курс атаки, повторный — идти (автопобеда, манёвр сохраняется) · <b>коричневый крап — астероидный поток (+1 МП/слот), зелёная дуга — ровный фарватер (−1)</b>...
+      <b>центральный объект — архетип системы</b>: чёрная дыра (падать −1/полоса, бежать +1, удержание 5, добыча ×1.5, приток −6) · нейтронная (сенсор ×2, приток пульсирует 9/9/36) · горячая (ветер: внешние кольца +5/ход, против ветра +1 МП/слот, сенсор ×0.75, приток +6) ·
+      ползунок — «призраки» будущего (+k ходов, доска детерминирована). <b>Клик по слоту —
+      курс</b>: план из прыжков и спиралей (каждая полоса — своя цена и свои мосты); синяя дуга —
+      по силам в этот ход, красный пунктир — МП не хватает, доедем за несколько ходов.
+      <b>В точке стоит тело, добыча или угроза — курс привязан к нему и едет с ним</b>: при завершении хода план перестраивается до его нового слота.
+      <b>Повторный клик в цель — идти</b>; ПКМ или клик мимо колец — сброс; наведение — только подсказка.
+      Клик по гейту под флотом — отвал.
+      Переключатель планировщика: <b>составной</b> (одна спираль + доводка) или <b>минимум МП</b> — поиск по графу через мосты и фарватеры, пусть и длиннее; <b>оба обходят вскрытые зоны угроз без боя</b> (клик в зону — атака; нет бесконтактного пути — курс не построится).
   </div>
 
   <div class="right">
@@ -87,12 +91,16 @@
       <div class="kv"><span>Флот</span><b id="stFleet"></b></div>
       <div class="kv"><span>Режим</span><b id="stMode"></b></div>
       <div class="kv"><span>Манёвр</span><b class="pips" id="stMp"></b></div>
+      <div class="kv"><span>Курс</span><b id="stRoute"></b></div>
       <div class="kv"><span>Кредиты</span><b id="stCredits"></b></div>
       <div class="kv"><span>Доход сейчас</span><b id="stIncome"></b></div>
       <div class="btnrow">
         <button class="act primary" id="btnEnd">Завершить ход</button>
         <button class="act seg on" id="btnRide">Верхом</button>
         <button class="act seg" id="btnHold">Держаться (1 МП)</button>
+        <button class="act" id="btnGrantNow">Грант +6 сейчас</button>
+        <button class="act" id="btnGrantTemp">Грант +6 на 3 х.</button>
+        <button class="act" id="btnPlanMode">План: составной</button>
         <button class="act" id="btnReset">Сброс</button>
       </div>
       <div class="btnrow" id="transitRow"></div>
@@ -123,12 +131,46 @@
      МОДУЛЬ ДОСКИ (чистый, без DOM — кандидат на перенос в C#).
      Правила: слоты — фиксированные мировые углы; токены ходят по слотам
      со своим темпом; «верхом» = бесплатно ехать с конвейером кольца;
-     «держаться» = 1 МП; прыжок по кольцу 1/слот по вращению, 2 — против;
-     смена кольца 2 МП на ближайший по углу слот; гейты — мировые слоты
-     внешнего кольца; сенсор/забор — бесплатно при перекрытии сети (±24°);
+     «держаться» = 3 МП; прыжок по кольцу 1/слот по вращению, 2 — против;
+     смена кольца — спираль, базовая 6 МП/полоса; гейт-сектор (v10.9) —
+     3 мировых слота внешнего кольца, отвал из любого, решётку темпа ловит
+     любым остатком — трим не нужен; сенсор/забор — бесплатно при перекрытии сети (±24°);
      рельеф (v8): астероиды +1 МП/слот, фарватер −1 — дрейфует с кольцом;
-     центральный объект (v9): архетип системы гнёт глобальные правила
-     (цены, темпы, сенсор, банк, доход).
+     центральный объект (v9): архетип системы гнёт глобальные правила;
+     экономика манёвра (v10, ADR-0021): приток плоский — характеристика
+     флота + флэт звезды (у нейтронной пульс 9/9/36), остаток сгорает,
+     рывки покупаются грантами (разовый — в кошелёк, временный — в приток);
+     курс (v10.1): клик пинит точку; если в ней токен (угроза/добыча/
+     тело) — курс ЕДЕТ С НИМ: при завершении хода план перестраивается
+     до его нового слота (не исполняясь). Повторный клик исполняет план
+     (выравниватели + спираль + доводка) насколько хватает МП, остаток
+     доезжается в следующие ходы. Планировщик (v10.2): переключатель
+     «составной» (одна спираль) / «дешёвый МП» (поиск по графу — полосные
+     спирали, мосты, фарватеры; путь длиннее, итог не дороже). Без боя
+     (v10.4): клик по точке = «хочу туда без боя» — ОБА планировщика не
+     заходят во вскрытые зоны (дешёвый — запрет в поиске; составной
+     отбрасывает задевающие зону кандидаты, по своему кольцу пробует
+     обе стороны, не выходит фигурой — откат на поиск по графу); клик
+     в саму зону — атака (финальная нога разрешена); бесконтактного
+     пути нет — курс не строится.
+     Бой (v10.5): манёвр не штрафует — МП остаются при флоте, ход
+     живёт дальше; «двигайся сначала, дерись под конец» отменяется.
+     Тревожная карта (v10.6–v10.7): в свободной игре R1 запечатан
+     блокадным кольцом из 8 станций (стыки зон герметичны — внутрь не
+     проехать без боя, прорыв = сломать станцию), внутри — два рейдера;
+     сценарии остаются на классических двух угрозах.
+     Перекрытие зон (v10.8): слот накрыт несколькими зонами — бой со
+     всеми владельцами сразу (контакт, атакующий заход, обрыв спирали).
+     Гейт-сектор (v10.9): гейт — не слот, а 3 слота внешнего кольца,
+     отвал из любого; расписание прежнее (одна точка входа на цикл у
+     любой решётки), трим на решётку умер. Врата (стройка, потом)
+     встанут в сектор и будут расширять его.
+     Разрез по МП (v10.10): красный пунктир курса начинается ровно
+     в точке исчерпания МП — вдоль дуги режем по-слотово модельной
+     ценой; спираль атомарна (пол-перехода не оплатить).
+     Сокрытие (v10.3): объекты видны всегда — туман войны на потом
+     (открывать подлётом и исследованием); сенсорная сеть осталась
+     детектором угроз (±24°, у звёзд множитель) и бесплатным подбором.
      ============================================================ -->
 <script id="board-model">
 window.BoardModel = (function () {
@@ -145,8 +187,7 @@ window.BoardModel = (function () {
   // Окно диагонального перехода: по вращению — шире и дешевле, против — уже и дороже.
   const CROSS_WIN = { WITH: 30 / DEG + 1e-9, AGAINST: 15 / DEG + 1e-9 };
   const REACH = 24 / DEG + 1e-9; // сенсорная сеть, радианы (+ε: ровно 24° — это «в сети»)
-  const MP_MAX = 18;
-  const MP_BANK = 2; // копилка: неистраченный манёвр копится до 2× притока
+  const MP_RATE = 18; // штатный приток манёвра за ход — характеристика флота
 
   // Гейты сидят на решётке темпа внешнего кольца (кратны gcd(15,72)=3):
   // промах по решётке — трим на 1–2 слота за копейки. Углы = старые ×3.
@@ -196,19 +237,19 @@ window.BoardModel = (function () {
   /// Центральный объект (v9): архетип системы. Гнёт не слоты, а сами
   /// правила — цены, темпы, сенсор, банк, доход. Движение и не только.
   /// calm — база; blackhole — падать дёшево, бежать дорого, держаться
-  /// дорого, добыча богаче; pulsar — всё видно, но банк не копится;
-  /// hot — ветер разгоняет внешний конвейер и дует в лицо против вращения.
+  /// дорого, добыча богаче; pulsar — сеть ×2 (угрозы видит дальше), манёвр
+  /// пульсирует; hot — ветер разгоняет внешний конвейер и дует в лицо.
   const STAR_KINDS = {
-    calm:      { name: 'Спокойная звезда',  hint: 'базовые правила' },
+    calm:      { name: 'Спокойная звезда',  hint: 'базовые правила · приток 18' },
     blackhole: { name: 'Чёрная дыра',
-                 hint: 'падать −1/полоса, бежать +1/полоса · удержание 5 · добыча ×1.5',
-                 crossIn: -1, crossOut: +1, hold: 5, incomeMul: 1.5 },
+                 hint: 'падать −1/полоса, бежать +1/полоса · удержание 5 · добыча ×1.5 · приток −6',
+                 crossIn: -1, crossOut: +1, hold: 5, incomeMul: 1.5, mpFlat: -6 },
     pulsar:    { name: 'Нейтронная звезда',
-                 hint: 'сенсор ×2 (±48°) · копилка не копится (кап 18)',
-                 reachMul: 2, bankMul: 1 },
+                 hint: 'сенсор ×2 (±48°) · манёвр пульсирует: 9/9/36 по ходам',
+                 reachMul: 2, pulse: [9, 9, 36] },
     hot:       { name: 'Горячая звезда',
-                 hint: 'ветер: внешние кольца +5/ход, против ветра +1 МП/слот · сенсор ×0.75',
-                 tempoAdd: { 0: 5, 1: 5 }, againstAdd: { 0: 1, 1: 1 }, reachMul: 0.75 },
+                 hint: 'ветер: внешние кольца +5/ход, против ветра +1 МП/слот · сенсор ×0.75 · приток +6',
+                 tempoAdd: { 0: 5, 1: 5 }, againstAdd: { 0: 1, 1: 1 }, reachMul: 0.75, mpFlat: +6 },
   };
   const starMods = s => STAR_KINDS[s.star.kind] || STAR_KINDS.calm;
   const sensorReach = s => REACH * (starMods(s).reachMul || 1);
@@ -236,10 +277,11 @@ window.BoardModel = (function () {
   /// этой полосы (в точке пересечения). Прямой курс — самый дорогой,
   /// диагональ по вращению — дешевле, против — дороже. Итог — сумма.
   const deltaAngle = a => { a = modAngle(a); return a > Math.PI ? a - TAU : a; };
-  function crossCostAt(s, toRing, slot) {
-    const n = Math.abs(toRing - s.fleet.ring);
+  function crossCostAt(s, toRing, slot, from) {
+    const fr = from || s.fleet;
+    const n = Math.abs(toRing - fr.ring);
     if (n < 1 || n >= s.rings.length) return { ok: false, delta: 0, deltaDeg: 0 };
-    const fa = fleetAngle(s);
+    const fa = slotAngle(s, fr.ring, fr.slot);
     const delta = deltaAngle(slotAngle(s, toRing, slot) - fa);
     const dband = delta / n;
     if (dband < -CROSS_WIN.AGAINST || dband > CROSS_WIN.WITH)
@@ -247,20 +289,20 @@ window.BoardModel = (function () {
     const base = dband >= 0
       ? COST.CROSS - Math.floor(dband * DEG / 10 + 1e-9)   // каждые полные 10° по вращению: −1
       : COST.CROSS + Math.floor(-dband * DEG / 7.5 + 1e-9); // каждые полные 7.5° против: +1
-    const dir = Math.sign(toRing - s.fleet.ring);
+    const dir = Math.sign(toRing - fr.ring);
     // Центральный объект: чёрная дыра — падать внутрь дешевле (dir>0 —
     // к звезде, номера колец растут к центру), бежать наружу дороже.
     const sm = starMods(s);
     const starToll = dir > 0 ? (sm.crossIn || 0) : (sm.crossOut || 0);
     let cost = 0, bodies = [];
     for (let i = 0; i < n; i++) {
-      const bandId = dir > 0 ? s.fleet.ring + i : toRing + i;
+      const bandId = dir > 0 ? fr.ring + i : toRing + i;
       const midA = modAngle(fa + dband * (i + 0.5));
       let c = base + starToll;
-      for (const fr of fordsOf(s, bandId)) {
-        if (angDist(midA, fr.angle) <= fr.half) {
-          c = Math.max(1, c - fr.body.mass);
-          bodies.push(fr.body);
+      for (const frd of fordsOf(s, bandId)) {
+        if (angDist(midA, frd.angle) <= frd.half) {
+          c = Math.max(1, c - frd.body.mass);
+          bodies.push(frd.body);
           break;
         }
       }
@@ -271,7 +313,7 @@ window.BoardModel = (function () {
     // астероиды — дороже; итог не ниже 1 МП.
     let toll = 0; const terrains = [];
     for (let j = 1; j <= n; j++) {
-      const ringId = s.fleet.ring + dir * j;
+      const ringId = fr.ring + dir * j;
       const t = terrainAt(s, ringId, slotNearest(s, ringId, modAngle(fa + dband * j)));
       if (t) { toll += t.toll; terrains.push(t); }
     }
@@ -303,6 +345,7 @@ window.BoardModel = (function () {
     const withTerrain = !(opts && opts.terrain === false);
     const starKind = (opts && opts.star) || 'calm';
     const sm = STAR_KINDS[starKind] || STAR_KINDS.calm;
+    const rate = (opts && opts.rate) || MP_RATE; // манёвренность флота: приток МП/ход
     return {
       turn: 0,
       star: { kind: starKind },
@@ -324,19 +367,41 @@ window.BoardModel = (function () {
         { id: 'home',  name: 'Домой', slot: 0 },
         { id: 'alpha', name: 'Альфа', slot: 24 },
         { id: 'beta',  name: 'Бета',  slot: 48 },
-      ], // гейты — фиксированные мировые слоты внешнего кольца (линии не вращаются)
+      ], // гейт-сектора (v10.9): slot — центр сектора из 3 мировых слотов [g−1, g, g+1],
+         // линии не вращаются; тела/добыча в секторе не спавнятся (угрозы могут накрывать)
       objects: [
-        { id: 'D1', name: 'Астероидный карман', kind: 'deposit',  ring: 2, slot: 6,  rate: 2, revealed: true },
-        { id: 'D2', name: 'Газовый жгут',       kind: 'deposit',  ring: 4, slot: 18, rate: 3, revealed: true },
-        { id: 'X1', name: 'Обломки',            kind: 'derelict', ring: 2, slot: 12, bonus: 10, revealed: false, taken: false },
-        { id: 'A1', name: 'Аномалия',           kind: 'anomaly',  ring: 4, slot: 6,  bonus: 15, revealed: true, taken: false, expires: 12 },
+        { id: 'D1', name: 'Астероидный карман', kind: 'deposit',  ring: 2, slot: 6,  rate: 2 },
+        { id: 'D2', name: 'Газовый жгут',       kind: 'deposit',  ring: 4, slot: 18, rate: 3 },
+        { id: 'X1', name: 'Обломки',            kind: 'derelict', ring: 2, slot: 12, bonus: 10, taken: false },
+        { id: 'A1', name: 'Аномалия',           kind: 'anomaly',  ring: 4, slot: 6,  bonus: 15, taken: false, expires: 12 },
       ],
       hostiles: [
         { id: 'ST1', name: 'Пиратская станция', kind: 'station', ring: 1, slot: 10, power: 8, revealed: true, alive: true },
         { id: 'RD1', name: 'Рейдер',             kind: 'raider',  ring: 3, slot: 12, power: 4, revealed: false, alive: true },
+        // Блокадное кольцо (v10.7): блокпосты + базовая ST1 — 8 станций
+        // на R1 (s3,10,18,26,34,42,50,56; ST1=s10), шаг ≤ 8 слотов =
+        // 48° = ровно две полуширины зоны: стыки герметичны и по слотам,
+        // и по непрерывным углам (спираль не проскользнёт). Внутрь без
+        // боя не попасть: «Не проехать без боя». Прорыв = убить одну
+        // станцию (клик в её зону — атака) — щель открывается, курсы
+        // идут сквозь. Рейдеры и богатства — внутри.
+        ...((opts && opts.menace) ? [
+          { id: 'BP1', name: 'Блокпост II', kind: 'station', ring: 1, slot: 18, power: 6, revealed: true, alive: true },
+          { id: 'BP2', name: 'Блокпост III', kind: 'station', ring: 1, slot: 26, power: 6, revealed: true, alive: true },
+          { id: 'BP3', name: 'Блокпост IV', kind: 'station', ring: 1, slot: 34, power: 5, revealed: true, alive: true },
+          { id: 'BP4', name: 'Блокпост V', kind: 'station', ring: 1, slot: 42, power: 5, revealed: true, alive: true },
+          { id: 'BP5', name: 'Блокпост VI', kind: 'station', ring: 1, slot: 50, power: 6, revealed: true, alive: true },
+          { id: 'BP6', name: 'Блокпост VII', kind: 'station', ring: 1, slot: 56, power: 5, revealed: true, alive: true },
+          { id: 'BP7', name: 'Блокпост VIII', kind: 'station', ring: 1, slot: 3, power: 6, revealed: true, alive: true },
+          { id: 'RD2', name: 'Рейдер «Шип»',      kind: 'raider',  ring: 2, slot: 24, power: 3, revealed: true, alive: true },
+          { id: 'RD3', name: 'Рейдер «Каратель»', kind: 'raider',  ring: 3, slot: 30, power: 5, revealed: false, alive: true },
+        ] : []),
       ],
-      fleet: { ring: 0, slot: 0, riding: true, mp: MP_MAX, mpMax: MP_MAX, departed: null },
+      fleet: { ring: 0, slot: 0, riding: true, mp: rate, mpRate: rate, departed: null },
       credits: 0,
+      grants: [],   // временные гранты манёвра: {amount, turns} — добавляются к притоку
+      route: null,  // зафиксированный курс: {ring, slot, follow} — якорь-точка (v10.1)
+      planMode: 'composite', // планировщик курса: composite | cheap (v10.2)
       log: [],
     };
   }
@@ -362,25 +427,27 @@ window.BoardModel = (function () {
   };
   /// Прыжок по кольцу: 1/слот по вращению, 2 — против, плюс тариф рельефа
   /// каждого ПРОЙДЕННОГО слота (фарватер может обнулить, поток — удвоить).
-  const hopAlongCost = (s, delta, fromSlot) => {
-    const r = s.rings[s.fleet.ring];
+  /// ringId — на каком кольце идём (по умолчанию своё).
+  const hopAlongCost = (s, delta, fromSlot, ringId) => {
+    const rg = ringId != null ? ringId : s.fleet.ring;
+    const r = s.rings[rg];
     if (fromSlot == null) fromSlot = s.fleet.slot;
     const sm = starMods(s);
     const per = Math.sign(delta) === Math.sign(r.tempo)
       ? COST.WITH
-      : COST.AGAINST + ((sm.againstAdd && sm.againstAdd[s.fleet.ring]) || 0);
+      : COST.AGAINST + ((sm.againstAdd && sm.againstAdd[rg]) || 0);
     const step = Math.sign(delta);
     let cost = 0;
     for (let i = 1; i <= Math.abs(delta); i++) {
       const slot = mod(fromSlot + step * i, r.slots);
-      const t = terrainAt(s, s.fleet.ring, slot);
+      const t = terrainAt(s, rg, slot);
       cost += per + (t ? t.toll : 0);
     }
     return Math.max(0, cost);
   };
-  function crossLanding(s, ringId) {
+  function crossLanding(s, ringId, from) {
     const r = s.rings[ringId];
-    const fa = fleetAngle(s);
+    const fa = slotAngle(s, (from || s.fleet).ring, (from || s.fleet).slot);
     let best = 0, bd = Infinity;
     for (let j = 0; j < r.slots; j++) {
       const d = angDist(slotAngle(s, ringId, j), fa);
@@ -394,12 +461,10 @@ window.BoardModel = (function () {
     for (const o of s.objects) {
       if (o.gone || o.taken) continue;
       const d = angDist(fa, slotAngle(s, o.ring, o.slot));
-      if (!o.revealed && d <= sensorReach(s)) {
-        o.revealed = true;
-        events.push({ type: 'revealed', msg: 'Сеть вскрыла: ' + o.name });
-      }
       if (o.kind === 'deposit') continue; // доход — в конце хода
-      if (o.revealed && !o.taken && d <= sensorReach(s)) {
+      // (v10.3) сокрытие объектов снято: видны всегда, сеть только подбирает;
+      // вскрывать сеть будет лишь угрозы — см. цикл по s.hostiles ниже
+      if (!o.taken && d <= sensorReach(s)) {
         o.taken = true;
         s.credits += o.bonus;
         events.push({ type: 'collected', msg: o.name + ': +' + o.bonus + ' кредитов' });
@@ -417,24 +482,30 @@ window.BoardModel = (function () {
 
   /// Угрозы (Contact, ADR-0017): станции и рейдеры — токены на кольцах,
   /// ездят конвейером. Красная зона ±24° (как своя сеть). Проход/посадка
-  /// в зону = бой: пока без сцены — автопобеда, но темп платим всегда
-  /// (бой съедает остаток хода).
+  /// в зону = бой: пока без сцены — автопобеда; манёвр бой не
+  /// штрафует (v10.5): МП остаются при флоте. Перекрытие зон (v10.8):
+  /// слот накрыт несколькими зонами — бой со ВСЕМИ владельцами сразу
+  /// (контакт, прыжок, спираль); threatsAt отдаёт весь список.
   const THREAT_ZONE = 24 / DEG + 1e-9;
   const FLEET_STR = 6; // сила флота: крюк для будущей сцены боя (сейчас — автопобеда)
   const threatAngle = (s, h, k = 0) => slotAngle(s, h.ring, tokenSlotAt(s, h.ring, h.slot, k));
-  function threatAt(s, ringId, angle) {
+  function threatsAt(s, ringId, angle) {
+    const out = [];
     for (const h of s.hostiles) {
       if (!h.alive || h.ring !== ringId) continue;
-      if (angDist(angle, threatAngle(s, h)) <= THREAT_ZONE) return h;
+      if (angDist(angle, threatAngle(s, h)) <= THREAT_ZONE) out.push(h);
     }
-    return null;
+    return out;
   }
+  function threatAt(s, ringId, angle) { return threatsAt(s, ringId, angle)[0] || null; }
+  const quoteList = hs => hs.length === 1 ? '«' + hs[0].name + '»'
+    : hs.slice(0, -1).map(h => '«' + h.name + '»').join(', ') + ' и «' + hs[hs.length - 1].name + '»';
   function battle(s, h, ev) {
     // Пока сцены боя нет: автопобеда за один заход. Прочность (power) —
-    // данные для будущей сцены; темповая цена остаётся: бой съедает ход.
+    // данные для будущей сцены. Темповая цена снята (v10.5): манёвр
+    // при флоте, дерись когда удобно.
     h.alive = false;
-    s.fleet.mp = 0;
-    ev.push({ type: 'battle', msg: 'Бой с «' + h.name + '»: автопобеда — сломан, ход окончен' });
+    ev.push({ type: 'battle', msg: 'Бой с «' + h.name + '»: автопобеда — сломан, манёвр сохранён' });
   }
 
   /// План атаки на угрозу прямо сейчас: лучший курс в её зону.
@@ -499,6 +570,320 @@ window.BoardModel = (function () {
     return hopCross(s, plan.ring, plan.slot);
   }
 
+  /// Приток манёвра на ход t: характеристика флота + флэт звезды;
+  /// нейтронная пульсирует по расписанию (9/9/36 — среднее те же 18:
+  /// рывок приходит по графику звезды, а не из копилки). Временные
+  /// гранты добавляются сверху. Остаток прошлого хода не переносится.
+  function mpRefill(s, t) {
+    const sm = starMods(s);
+    let inc = sm.pulse ? sm.pulse[(t - 1) % sm.pulse.length]
+                       : s.fleet.mpRate + (sm.mpFlat || 0);
+    for (const g of s.grants) inc += g.amount;
+    return Math.max(0, inc);
+  }
+
+  /// Разовый грант (HoMM-стиль): сразу в кошелёк; несгоранное теряется
+  /// при следующем притоке.
+  function grantMp(s, amount) {
+    s.fleet.mp += amount;
+    pushLog(s, s.turn, [{ type: 'grant', msg: 'Грант манёвра: +' + amount + ' МП (разово, сгорит при притоке)' }]);
+    return { ok: true };
+  }
+  /// Временный грант: +amount к притоку на turns ходов.
+  function grantMpTemp(s, amount, turns) {
+    s.grants.push({ amount, turns });
+    pushLog(s, s.turn, [{ type: 'grant', msg: 'Грант манёвра: +' + amount + ' МП к притоку на ' + turns + ' х.' }]);
+    return { ok: true };
+  }
+  /// Направление прыжка по ЦЕНЕ, а не по числу слотов: против вращения
+  /// слот вдвое дороже — короткий путь бывает дороже длинного.
+  const cheapDelta = (s, ringId, from, to) => {
+    const d = shortestDelta(s, ringId, from, to);
+    if (d === 0) return 0;
+    const n = s.rings[ringId].slots;
+    const d2 = d > 0 ? d - n : d + n;
+    return hopAlongCost(s, d2, from, ringId) < hopAlongCost(s, d, from, ringId) ? d2 : d;
+  };
+
+
+  /// Композитный план до мирового слота: прыжки-выравниватели по своему
+  /// кольцу + не более одной спирали + доводка по кольцу цели. Перебор
+  /// сдвига до спирали — жадный поиск самой дешёвой точки входа в окно.
+  /// Кольца вращаются: план жив один ход, курс хранит только цель.
+  /// Без боя (v10.4): клик = «хочу туда без боя» — кандидат, задевающий
+  /// вскрытую зону, отбрасывается (цель-в-зоне = атака: финальная нога
+  /// разрешена). По своему кольцу при блокировке пробуем обе стороны.
+  /// Если фигура не проходит вовсе — откат на поиск по графу
+  /// (planRouteCheap): он и скажет «не проехать без боя», если пути нет.
+  function planRoute(s, ringId, slot) {
+    if (s.planMode === 'cheap') return planRouteCheap(s, ringId, slot);
+    const f = s.fleet;
+    const goalPos = { ring: ringId, slot };
+    // вскрытая зона на пути ноги — так же, как режет исполнитель:
+    // along — каждый пройденный слот; cross — кольца под дугой на
+    // углах fa+Δ·j/n (Δ — как у crossCostAt). Финал в цель-в-зоне не в счёт.
+    const legHot = (leg, from) => {
+      if (leg.kind === 'along') {
+        const n = s.rings[from.ring].slots, step = Math.sign(leg.delta);
+        for (let i = 1; i <= Math.abs(leg.delta); i++) {
+          const sl = mod(from.slot + step * i, n);
+          if (from.ring === goalPos.ring && sl === goalPos.slot) continue;
+          const th = threatAt(s, from.ring, slotAngle(s, from.ring, sl));
+          if (th && th.revealed) return true;
+        }
+        return false;
+      }
+      const n = Math.abs(leg.ring - from.ring), dir = Math.sign(leg.ring - from.ring);
+      const fa = slotAngle(s, from.ring, from.slot);
+      const delta = deltaAngle(slotAngle(s, leg.ring, leg.slot) - fa);
+      for (let j = 1; j <= n; j++) {
+        const ring = from.ring + dir * j;
+        if (j === n && leg.ring === goalPos.ring && leg.slot === goalPos.slot) continue;
+        const th = threatAt(s, ring, modAngle(fa + delta * j / n));
+        if (th && th.revealed) return true;
+      }
+      return false;
+    };
+    const routeHot = legs => {
+      let cur = { ring: f.ring, slot: f.slot };
+      for (const leg of legs) {
+        if (legHot(leg, cur)) return true;
+        cur = leg.kind === 'along'
+          ? { ring: cur.ring, slot: mod(cur.slot + leg.delta, s.rings[cur.ring].slots) }
+          : { ring: leg.ring, slot: leg.slot };
+      }
+      return false;
+    };
+    const alongLeg = (d, fromSlot, rg) =>
+      d ? [{ kind: 'along', delta: d, cost: hopAlongCost(s, d, fromSlot, rg) }] : [];
+    if (f.ring === ringId) {
+      const d = cheapDelta(s, ringId, f.slot, slot);
+      const legs = alongLeg(d, f.slot, ringId);
+      if (!routeHot(legs))
+        return { ok: true, target: goalPos, cost: d ? hopAlongCost(s, d, f.slot, ringId) : 0, legs };
+      const n = s.rings[ringId].slots;
+      const d2 = d > 0 ? d - n : d + n; // короткая сторона в зоне — идём вокруг
+      const legs2 = alongLeg(d2, f.slot, ringId);
+      if (!routeHot(legs2))
+        return { ok: true, target: goalPos, cost: hopAlongCost(s, d2, f.slot, ringId), legs: legs2 };
+      return planRouteCheap(s, ringId, slot);
+    }
+    const nCur = s.rings[f.ring].slots;
+    let best = null;
+    const consider = legs => {
+      if (routeHot(legs)) return; // через зону не ходим: клик = без боя
+      const cost = legs.reduce((a, l) => a + l.cost, 0);
+      if (!best || cost < best.cost) best = { legs, cost };
+    };
+    for (let d = -Math.floor(nCur / 2); d <= Math.ceil(nCur / 2); d++) {
+      const from = { ring: f.ring, slot: mod(f.slot + d, nCur) };
+      const pre = alongLeg(d, f.slot, f.ring);
+      const cc = crossCostAt(s, ringId, slot, from);            // спираль прямо в цель
+      if (cc.ok) consider(pre.concat([{ kind: 'cross', ring: ringId, slot, cost: cc.cost, deltaDeg: cc.deltaDeg }]));
+      const land = crossLanding(s, ringId, from);               // или ближайший курс + доводка
+      const cc2 = crossCostAt(s, ringId, land.slot, from);
+      if (cc2.ok) {
+        const tail = cheapDelta(s, ringId, land.slot, slot);
+        consider(pre.concat([{ kind: 'cross', ring: ringId, slot: land.slot, cost: cc2.cost, deltaDeg: cc2.deltaDeg }],
+                             alongLeg(tail, land.slot, ringId)));
+      }
+    }
+    return best ? Object.assign({ ok: true, target: goalPos }, best)
+                : planRouteCheap(s, ringId, slot); // фигура не проходит — ищем графом
+  }
+
+  function setPlanMode(s, mode) {
+    s.planMode = mode === 'cheap' ? 'cheap' : 'composite';
+    return { ok: true };
+  }
+
+  /// Дешёвый планировщик (v10.2): минимум МП поиском по графу. Узлы —
+  /// (кольцо, слот), рёбра — прыжок на соседний слот (цена слота с
+  /// рельефом) и одно-полосные спирали в любое окно соседнего кольца
+  /// (мосты и рельеф под дугой считаются). Отсюда маршруты, которые
+  /// составной план не видит: несколько спиралей по одной полосе, обход
+  /// астероидных потоков, бесплатные фарватеры, серия мостов. Путь
+  /// бывает длиннее составного. Без боя (v10.4): клик по точке — это
+  /// «хочу туда БЕЗ боя», поэтому слоты вскрытых зон НЕПРОХОДИМЫ для
+  /// поиска (не цена — запрет). Единственное исключение — сама цель в
+  /// зоне: это осознанная атака (клик в красное), финальная нога в
+  /// зону разрешена. Нет бесконтактного пути — план не строится
+  /// («Не проехать без боя»). Скрытых угроз поиск не видит — их
+  /// вскрывает только сеть/контакт. Составной планировщик с зонами тоже
+  /// не суется: кандидаты с зоной отбрасываются, а если фигура не
+  /// проходит — откат на этот поиск.
+  const zoneHot = (s, r, sl, goal) => {
+    if (goal && r === goal.ring && sl === goal.slot) return false; // цель в зоне — атака по клику: идти можно
+    const th = threatAt(s, r, slotAngle(s, r, sl));
+    return !!(th && th.revealed);
+  };
+
+
+  function planRouteCheap(s, ringId, slot) {
+    const f = s.fleet;
+    if (f.ring === ringId && f.slot === slot)
+      return { ok: true, target: { ring: ringId, slot }, cost: 0, legs: [] };
+    const key = (r, sl) => r * 1000 + sl;
+    const start = key(f.ring, f.slot), goal = key(ringId, slot);
+    const goalPos = { ring: ringId, slot };
+    const dist = new Map([[start, 0]]), prev = new Map();
+    const pq = [[0, start]];
+    let found = false;
+    while (pq.length) {
+      pq.sort((a, b) => a[0] - b[0]);
+      const [d, k] = pq.shift();
+      if (d > dist.get(k)) continue;
+      if (k === goal) { found = true; break; }
+      const r = Math.floor(k / 1000), sl = k % 1000;
+      const relax = (nr, nsl, w) => {
+        const nk = key(nr, nsl), nd = d + w;
+        if (nd < (dist.has(nk) ? dist.get(nk) : Infinity)) { dist.set(nk, nd); prev.set(nk, k); pq.push([nd, nk]); }
+      };
+      const n = s.rings[r].slots;
+      for (const stp of [1, -1]) {
+        const ns = mod(sl + stp, n);
+        if (!zoneHot(s, r, ns, goalPos)) relax(r, ns, hopAlongCost(s, stp, sl, r));
+      }
+      for (const dr of [1, -1]) {
+        const nr = r + dr;
+        if (nr < 0 || nr >= s.rings.length) continue;
+        const nn = s.rings[nr].slots;
+        for (let L = 0; L < nn; L++) {
+          const cc = crossCostAt(s, nr, L, { ring: r, slot: sl });
+          if (cc.ok && !zoneHot(s, nr, L, goalPos)) relax(nr, L, cc.cost);
+        }
+      }
+    }
+    if (!found) return { ok: false, msg: 'Не проехать без боя — зоны перекрыли путь', target: { ring: ringId, slot }, legs: [], cost: 0 };
+    // путь -> ноги: подряд идущие прыжки по кольцу сливаются в одну ногу
+    const path = [];
+    for (let k = goal; k !== start; k = prev.get(k)) path.unshift(k);
+    const legs = [];
+    let cur = { ring: f.ring, slot: f.slot };
+    for (const k of path) {
+      const r = Math.floor(k / 1000), sl = k % 1000;
+      if (r === cur.ring) {
+        const n = s.rings[r].slots;
+        const dir = mod(sl - cur.slot, n) === 1 ? 1 : -1;
+        const last = legs[legs.length - 1];
+        if (last && last.kind === 'along') last.delta += dir;
+        else legs.push({ kind: 'along', delta: dir, cost: 0 });
+      } else {
+        legs.push({ kind: 'cross', ring: r, slot: sl, cost: 0, deltaDeg: 0 });
+      }
+      cur = { ring: r, slot: sl };
+    }
+    // расценить ноги с текущих позиций (как их исполнит followRoute)
+    let pos = { ring: f.ring, slot: f.slot }, total = 0;
+    for (const leg of legs) {
+      if (leg.kind === 'along') {
+        leg.cost = hopAlongCost(s, leg.delta, pos.slot, pos.ring);
+        pos = { ring: pos.ring, slot: mod(pos.slot + leg.delta, s.rings[pos.ring].slots) };
+      } else {
+        const cc = crossCostAt(s, leg.ring, leg.slot, pos);
+        if (!cc.ok) return { ok: false, target: { ring: ringId, slot }, legs: [], cost: 0 };
+        leg.cost = cc.cost; leg.deltaDeg = cc.deltaDeg;
+        pos = { ring: leg.ring, slot: leg.slot };
+      }
+      total += leg.cost;
+    }
+    return { ok: true, target: { ring: ringId, slot }, cost: total, legs };
+  }
+
+  /// Якорь курса (v10.1): мировой слот — но если в нём стоит токен
+  /// (раскрытая угроза / добыча / тело), курс привязывается к НЕМУ и
+  /// едет с ним: кольца-то конвейером уходят, «та же точка» — это
+  /// точка-объект, а не пустой слот. Цель исчезла (схлопнулась/взята/
+  /// сломана) — якорь замирает в её последнем слоте.
+  function tokenAt(s, ringId, slot) {
+    const h = s.hostiles.find(x => x.alive && x.revealed && x.ring === ringId && x.slot === slot);
+    if (h) return { kind: 'hostile', name: h.name, ref: h };
+    const o = s.objects.find(x => !x.gone && !x.taken && x.ring === ringId && x.slot === slot);
+    if (o) return { kind: 'object', name: o.name, ref: o };
+    const b = s.bodies.find(x => x.ring === ringId && x.slot === slot);
+    if (b) return { kind: 'body', name: b.name || 'тело', ref: b };
+    return null;
+  }
+
+  /// Текущая цель курса: если курс привязан к токену — его СЕГОДНЯШНИЙ
+  /// слот (лениво, при каждом обращении), иначе — мировой слот пина.
+  function routeTarget(s) {
+    const r = s.route;
+    if (!r) return null;
+    if (r.follow) {
+      const t = r.follow.ref;
+      const gone = r.follow.kind === 'hostile' ? !t.alive
+                 : r.follow.kind === 'object' ? (t.gone || t.taken) : false;
+      if (!gone) { r.ring = t.ring; r.slot = t.slot; }
+      else r.follow = null; // цель пропала — якорь замирает на месте
+    }
+    return { ring: r.ring, slot: r.slot, name: r.follow ? r.follow.name : null };
+  }
+
+  /// Зафиксировать курс (первый клик): якорь — точка клика; если там
+  /// стоит токен, курс едет с ним. Курс можно строить и туда, где не
+  /// хватает МП, — доедем за несколько ходов.
+  function pinRoute(s, ringId, slot) {
+    if (s.fleet.departed) return { ok: false, msg: 'Флот уже ушёл.' };
+    const tok = tokenAt(s, ringId, slot);
+    s.route = { ring: ringId, slot, follow: tok ? { kind: tok.kind, name: tok.name, ref: tok.ref } : null };
+    return { ok: true, follow: tok ? tok.name : null, plan: planRoute(s, ringId, slot) };
+  }
+  function clearRoute(s) { s.route = null; return { ok: true }; }
+
+  /// Исполнение курса (повторный клик): ноги по очереди, пока хватает МП.
+  /// Длинный прыжок исполняется частично — до слота, где МП кончились;
+  /// спираль атомарна: не хватает — ждём следующего хода. Курс держится,
+  /// пока не приведёт в цель (или пока его не сбросят).
+  function followRoute(s) {
+    const f = s.fleet;
+    if (f.departed) return { ok: false, msg: 'Флот уже ушёл.' };
+    if (!s.route) return { ok: false, msg: 'Курс не построен — сначала клик по слоту.' };
+    const t = routeTarget(s); // цель могла уехать с кольцом — берём сегодняшнюю
+    if (f.ring === t.ring && f.slot === t.slot) {
+      s.route = null;
+      return { ok: true, arrived: true, msg: t.name ? 'Мы уже у цели: «' + t.name + '».' : 'Мы уже на цели.' };
+    }
+    const plan = planRoute(s, t.ring, t.slot);
+    if (!plan.ok) return { ok: false, msg: plan.msg || 'Окно ушло — курс не сходится. Переставь цель.' };
+    let movedAny = false;
+    for (const leg of plan.legs) {
+      if (leg.kind === 'along') {
+        const step = Math.sign(leg.delta);
+        let k = 0; // сколько слотов этой ноги по карману
+        for (let i = 1; i <= Math.abs(leg.delta); i++) {
+          if (hopAlongCost(s, step * i, f.slot) > f.mp) break;
+          k = i;
+        }
+        if (k === 0) break;
+        const before = f.slot;
+        const res = hopAlong(s, step * k); // исполнитель сам режет по угрозам
+        if (!res.ok) break;
+        movedAny = true;
+        if (f.slot !== mod(before + step * k, s.rings[f.ring].slots)) break; // клип по угрозе: геометрия ноги сломана — стоп
+      } else {
+        if (leg.cost > f.mp) break;
+        const res = hopCross(s, leg.ring, leg.slot);
+        if (!res.ok) break;
+        movedAny = true;
+        if (res.threat) break; // бой на клипе: дальше по плану не идём (МП целы — иди вручную)
+      }
+    }
+    const arrived = f.ring === t.ring && f.slot === t.slot;
+    let msg;
+    if (arrived) {
+      msg = (t.name ? 'Пришли: «' + t.name + '» (' : 'Пришли: ') + s.rings[f.ring].name + ', слот ' + f.slot + (t.name ? ')' : '');
+      s.route = null;
+    } else {
+      const rest = planRoute(s, t.ring, t.slot);
+      msg = movedAny
+        ? 'МП кончились — курс держим (осталось ~' + (rest.ok ? rest.cost : '?') + ' МП пути)'
+        : 'Не хватает МП (первая нога ' + plan.legs[0].cost + ' МП) — жди притока или дай грант';
+    }
+    pushLog(s, s.turn, [{ type: 'route', msg }]);
+    return { ok: true, arrived, moved: movedAny, msg };
+  }
+
   function endTurn(s) {
     const sm = starMods(s);
     if (s.fleet.departed) return [{ type: 'noop', msg: 'Флот уже ушёл из системы.' }];
@@ -528,16 +913,18 @@ window.BoardModel = (function () {
       ev.push({ type: 'forced', msg: 'МП не хватило на удержание — кольцо повезло дальше (слот ' + f.slot + ')' });
     }
     // Контакт: зоны угроз догнали флот (или флот въехал верхом) — бой неизбежен.
-    const contact = threatAt(s, f.ring, fleetAngle(s));
-    if (contact) {
-      contact.revealed = true;
-      ev.push({ type: 'contact', msg: 'Контакт: «' + contact.name + '» накрыл флот!' });
-      battle(s, contact, ev);
+    // Перекрытие (v10.8): бой со всеми, чья зона накрыла флот.
+    const contact = threatsAt(s, f.ring, fleetAngle(s));
+    if (contact.length) {
+      for (const h of contact) h.revealed = true;
+      ev.push({ type: 'contact', msg: 'Контакт: ' + quoteList(contact) +
+        (contact.length > 1 ? ' накрыли' : ' накрыл') + ' флот!' });
+      for (const h of contact) battle(s, h, ev);
     }
     let income = 0;
     const fa = fleetAngle(s);
     for (const o of s.objects) {
-      if (o.kind === 'deposit' && o.revealed && !o.gone &&
+      if (o.kind === 'deposit' && !o.gone &&
           angDist(fa, slotAngle(s, o.ring, o.slot)) <= sensorReach(s)) income += Math.round(o.rate * (sm.incomeMul || 1));
     }
     if (income > 0) {
@@ -546,14 +933,30 @@ window.BoardModel = (function () {
     }
     checkOverlaps(s, ev);
     s.turn++;
-    // Копилка: неистраченный манёвр переносится (до 2× притока). Ожидание
-    // окна — накопление на рывок, а не потерянный бюджет.
-    const cap = f.mpMax * (sm.bankMul != null ? sm.bankMul : MP_BANK);
-    const banked = Math.min(f.mp + f.mpMax, cap);
-    if (banked > f.mpMax && f.mp > 0) {
-      ev.push({ type: 'bank', msg: 'Манёвр: ' + banked + '/' + cap + ' (копилка)' });
+    // Приток: фикс число на ход — характеристика флота, флэт звезды,
+    // пульс нейтронной, временные гранты. Остаток сгорает: копилки нет
+    // (ADR-0021), рывки покупаются грантами.
+    const inc = mpRefill(s, s.turn);
+    f.mp = inc;
+    for (const g of s.grants) g.turns--;
+    s.grants = s.grants.filter(g => g.turns > 0);
+    ev.push({ type: 'refill', msg: 'Приток манёвра: +' + inc + ' МП' });
+    // Курс (v10.1): пережил ход — цель могла уехать с кольцом, план
+    // перестраивается до неё заново (но НЕ исполняется: идти — кликом).
+    if (s.route && !f.departed) {
+      const t = routeTarget(s);
+      const p = planRoute(s, t.ring, t.slot);
+      const label = (t.name ? '«' + t.name + '» (R' : 'R') + t.ring + ' слот ' + t.slot + (t.name ? ')' : '');
+      if (p.ok && p.cost === 0) {
+        s.route = null;
+        ev.push({ type: 'course', msg: 'Конвейер сам привёл в цель — курс снят' });
+      } else if (p.ok) {
+        ev.push({ type: 'course', msg: 'Курс держим: ' + label + ' · ' + p.cost + ' МП' +
+          (p.cost > f.mp ? ' (−' + (p.cost - f.mp) + ')' : ' — можно идти') });
+      } else {
+        ev.push({ type: 'course', msg: 'Окно ушло — курс держим: ' + label + ', ждём окна' });
+      }
     }
-    f.mp = banked;
     pushLog(s, s.turn, ev);
     return ev;
   }
@@ -567,34 +970,36 @@ window.BoardModel = (function () {
     // Цель ЗА зоной — транзит: обрыв на первом покрытом слоте.
     const step = Math.sign(delta);
     const targetSlot = mod(f.slot + delta, r.slots);
-    const targetThreat = threatAt(s, f.ring, slotAngle(s, f.ring, targetSlot));
-    let distFinal, threat;
-    if (targetThreat) {
+    const targetThreats = threatsAt(s, f.ring, slotAngle(s, f.ring, targetSlot));
+    let distFinal, threats;
+    if (targetThreats.length) {
       distFinal = Math.abs(delta);
-      threat = targetThreat;
+      threats = targetThreats;
     } else {
       distFinal = Math.abs(delta);
-      threat = null;
+      threats = null;
       for (let i = 1; i <= Math.abs(delta); i++) {
         const slot = mod(f.slot + step * i, r.slots);
         distFinal = i;
-        threat = threatAt(s, f.ring, slotAngle(s, f.ring, slot));
-        if (threat) break;
+        threats = threatsAt(s, f.ring, slotAngle(s, f.ring, slot));
+        if (threats.length) break;
       }
-      if (!threat) distFinal = Math.abs(delta);
+      if (!threats.length) { threats = null; distFinal = Math.abs(delta); }
     }
     const cost = hopAlongCost(s, step * distFinal);
-    const isAttack = targetThreat != null;
+    const isAttack = targetThreats.length > 0;
     if (cost > f.mp) return { ok: false, msg: 'Не хватает МП: нужно ' + cost + ', есть ' + f.mp + '.' };
     f.mp -= cost;
     f.slot = mod(f.slot + step * distFinal, r.slots);
+    // Перекрытие (v10.8): посадка/обрыв в слоте, накрытом несколькими
+    // зонами, — бой со всеми владельцами; threat (первый) — для совместимости.
     const ev = [{ type: 'hop',
-      msg: (threat ? (isAttack ? 'Атакующий заход: «' + threat.name + '»! ' : 'Прыжок прерван: «' + threat.name + '»! ') : '') +
+      msg: (threats ? (isAttack ? 'Атакующий заход: ' : 'Прыжок прерван: ') + quoteList(threats) + '! ' : '') +
            'Прыжок ' + (step * distFinal > 0 ? '+' : '') + step * distFinal + ' слот.: −' + cost + ' МП → слот ' + f.slot }];
-    if (threat) { threat.revealed = true; battle(s, threat, ev); }
+    if (threats) for (const h of threats) { h.revealed = true; battle(s, h, ev); }
     checkOverlaps(s, ev);
     pushLog(s, s.turn, ev);
-    return { ok: true, cost, threat, ev };
+    return { ok: true, cost, threat: threats && threats[0], threats, ev };
   }
 
   function hopCross(s, ringId, slot) {
@@ -609,18 +1014,19 @@ window.BoardModel = (function () {
            (n === 1 ? ' полосу' : ' полосы') + '): окно +30°/−15° по вращению на полосу.' };
     if (f.mp < cc.cost) return { ok: false, msg: 'Нужно ' + cc.cost + ' МП.' };
     // дуга пересекает кольца j=1..n под углами fa+Δ·j/n: первая зона угрози
-    // на пути обрывает переход — флот вступает в бой на том кольце
+    // на пути обрывает переход — флот вступает в бой на том кольце;
+    // перекрытие (v10.8) — бой со всеми владельцами зон кольца контакта
     const fa = fleetAngle(s), dir = Math.sign(ringId - f.ring);
-    let threat = null, threatRing = null, contactAngle = 0;
+    let threats = null, threatRing = null, contactAngle = 0;
     for (let j = 1; j <= n; j++) {
       const ring = f.ring + dir * j;
       const ang = modAngle(fa + cc.delta * j / n);
-      const th = threatAt(s, ring, ang);
-      if (th) { threat = th; threatRing = ring; contactAngle = ang; break; }
+      const th = threatsAt(s, ring, ang);
+      if (th.length) { threats = th; threatRing = ring; contactAngle = ang; break; }
     }
     const from = { ring: f.ring, slot: f.slot };
     f.mp -= cc.cost;
-    if (threat) {
+    if (threats) {
       // обрыв на кольце угрозы: ближайший слот к точке контакта
       f.ring = threatRing; f.slot = slotNearest(s, threatRing, contactAngle);
     } else {
@@ -629,19 +1035,19 @@ window.BoardModel = (function () {
     s.lastCross = { from, to: { ring: f.ring, slot: f.slot }, turn: s.turn };
     const names = cc.bodies.map(b => b.name).join(' + ');
     const ev = [{ type: 'cross',
-      msg: (threat ? 'Спираль прервана: «' + threat.name + '»! ' : '') +
-           (n === 1 || threat ? 'Смена кольца' : 'Переход на ' + n + ' полосы') + ' → ' + s.rings[f.ring].name +
+      msg: (threats ? 'Спираль прервана: ' + quoteList(threats) + '! ' : '') +
+           (n === 1 || threats ? 'Смена кольца' : 'Переход на ' + n + ' полосы') + ' → ' + s.rings[f.ring].name +
            ': −' + cc.cost + ' МП' +
            (Math.abs(cc.deltaDeg) >= 2
              ? ' (спираль ' + (cc.deltaDeg > 0 ? '+' : '') + cc.deltaDeg + '°)' : '') +
            (cc.ford ? ' (гравмост: ' + names + ')' : '') +
            (cc.toll ? ' (рельеф ' + (cc.toll > 0 ? '+' : '−') + Math.abs(cc.toll) + ')' : '') +
            ', приземление слот ' + f.slot }];
-    if (threat) { threat.revealed = true; battle(s, threat, ev); }
+    if (threats) for (const h of threats) { h.revealed = true; battle(s, h, ev); }
     checkOverlaps(s, ev);
     pushLog(s, s.turn, ev);
-    return { ok: true, cost: cc.cost, ford: cc.ford, body: cc.body, bodies: cc.bodies, threat,
-             bands: n, deltaDeg: cc.deltaDeg, ev };
+    return { ok: true, cost: cc.cost, ford: cc.ford, body: cc.body, bodies: cc.bodies,
+             threat: threats && threats[0], threats, bands: n, deltaDeg: cc.deltaDeg, ev };
   }
 
   function setRiding(s, riding) {
@@ -649,14 +1055,31 @@ window.BoardModel = (function () {
     return { ok: true };
   }
 
+  // Гейт-сектор (v10.9): лан пришвартован к внешнему кольцу зоной в 3 слота,
+  // центрированной на слоте гейта: [g−1, g, g+1] (mod n). Три подряд слота
+  // ловят решётку темпа (gcd(tempo, n) = 3) любого флота — отвал достижим
+  // верхом без трима, но точек входа на цикл по-прежнему одна: расписание
+  // не сжалось. Слоты сектора — полоса отчуждения: тела и добыча там не
+  // спавнятся, угрозы накрывать могут (осада гейта). Будущие Врата построят
+  // внутри сектора и будут расширять его (+3 слота) — стройка начнёт
+  // покупать сокращение расписания.
+  function gateSector(s, gate) {
+    const n = s.rings[0].slots;
+    return [(gate.slot + n - 1) % n, gate.slot, (gate.slot + 1) % n];
+  }
+  function inGateSector(s, gate, slot) {
+    return gateSector(s, gate).indexOf(slot) >= 0;
+  }
+
   function gateEta(s, gate) {
     const f = s.fleet;
     if (f.ring !== 0) return { turns: null, msg: 'флот не на внешнем кольце' };
-    if (f.slot === gate.slot) return { turns: 0, msg: 'стоим на гейте' };
+    const sec = gateSector(s, gate);
+    if (sec.indexOf(f.slot) >= 0) return { turns: 0, msg: 'в секторе гейта' };
     if (!f.riding) return { turns: null, msg: 'режим удержания — верхом не едем' };
     const r0 = s.rings[0];
     for (let k = 1; k <= r0.slots; k++) {
-      if (mod(f.slot + k * r0.tempo, r0.slots) === gate.slot) return { turns: k, msg: 'верхом ' + k + ' ход.' };
+      if (sec.indexOf(mod(f.slot + k * r0.tempo, r0.slots)) >= 0) return { turns: k, msg: 'верхом ' + k + ' ход.' };
     }
     return { turns: null, msg: 'верхом не сходится' };
   }
@@ -674,7 +1097,7 @@ window.BoardModel = (function () {
       msg: sameRing ? 'одно кольцо: верхом не сблизиться — только прыжками' : 'за 12 ходов не сойдётся' };
   }
 
-  // Транзит: автопилот верхом до гейта, ноль внимания игрока.
+  // Транзит: автопилот верхом до гейт-сектора, ноль внимания игрока.
   // Прерывания: вскрытие/подбор/исчезновение — пауза, решение за игроком.
   function transitAuto(s, gateId) {
     const f = s.fleet;
@@ -685,8 +1108,8 @@ window.BoardModel = (function () {
     f.riding = true;
     const all = [];
     for (let i = 0; i <= s.rings[0].slots; i++) {
-      if (f.slot === gate.slot) {
-        pushLog(s, s.turn, [{ type: 'transit', msg: 'Транзит: на гейте «' + gate.name + '»' }]);
+      if (inGateSector(s, gate, f.slot)) {
+        pushLog(s, s.turn, [{ type: 'transit', msg: 'Транзит: в секторе гейта «' + gate.name + '»' }]);
         return { ok: true, arrived: true, events: all };
       }
       const ev = endTurn(s);
@@ -701,8 +1124,8 @@ window.BoardModel = (function () {
     const f = s.fleet;
     const gate = s.gates.find(g => g.id === gateId);
     if (!gate) return { ok: false, msg: 'Нет такого гейта.' };
-    if (f.ring !== 0 || f.slot !== gate.slot) {
-      return { ok: false, msg: 'Отчалить можно только стоя на гейте «' + gate.name + '» (слот ' + gate.slot + ').' };
+    if (f.ring !== 0 || !inGateSector(s, gate, f.slot)) {
+      return { ok: false, msg: 'Отчалить можно только из гейт-сектора «' + gate.name + '» (слоты ' + gateSector(s, gate).join('·') + ').' };
     }
     f.departed = gate;
     const ev = [{ type: 'departed', msg: 'Уход через «' + gate.name + '» — линия в галактику.' }];
@@ -710,13 +1133,15 @@ window.BoardModel = (function () {
     return { ok: true, ev };
   }
 
-  return { TAU, DEG, COST, REACH, RINGS,
+  return { TAU, DEG, COST, REACH, RINGS, MP_RATE,
            makeSystem, endTurn, hopAlong, hopAlongCost, hopCross, setRiding,
            slotAngle, tokenSlotAt, fleetAngle, shortestDelta, crossLanding,
-           gateEta, targetEta, transitAuto, depart,
+           gateSector, inGateSector, gateEta, targetEta, transitAuto, depart,
            fordsOf, fordHalfWidth, fordCost, crossCost, crossCostAt, CROSS_WIN, fordEta,
            TERRAIN_KINDS, terrainAt, slotNearest, STAR_KINDS, starMods, sensorReach, holdCost,
-           threatAt, threatAngle, THREAT_ZONE, attack, attackPlan, attackEta,
+           threatAt, threatsAt, threatAngle, THREAT_ZONE, attack, attackPlan, attackEta,
+           mpRefill, grantMp, grantMpTemp, planRoute, pinRoute, clearRoute, followRoute, routeTarget,
+           setPlanMode,
            angDist, mod };
 })();
 </script>
@@ -731,7 +1156,8 @@ window.BoardModel = (function () {
   const tooltip = document.getElementById('tooltip');
   const toastEl = document.getElementById('toast');
   let state = null;
-  let freeStar = 'calm';  // центральный объект свободной игры (v9)
+  let freeStar = 'calm';   // центральный объект свободной игры (v9)
+  let freeRate = m.MP_RATE; // манёвренность флота свободной игры (v10)
   let scrub = 0;
   let hover = null;      // {ringId, slot, x, y}
   let scenario = null;   // активный сценарий
@@ -741,8 +1167,8 @@ window.BoardModel = (function () {
   const SCENARIOS = [
     {
       id: 'free', title: 'Свободная игра',
-      desc: 'Езжай куда хочешь. Ховер по слотам показывает цены и расписания, ползунок — будущее.',
-      setup: () => m.makeSystem({ star: freeStar }),
+      desc: 'Езжай куда хочешь. Клик по слоту — курс (в точке с телом/добычей/угрозой — привязан к нему и едет с ним), повторный — идти; переключатель планировщика — составной или минимум МП; ховер — только подсказка (цены и расписания), ползунок — будущее.',
+      setup: () => m.makeSystem({ star: freeStar, rate: freeRate, menace: true }),
       steps: () => [],
       assert: () => false,
     },
@@ -770,12 +1196,14 @@ window.BoardModel = (function () {
     },
     {
       id: 's2', title: '2 · Расписание гейтов',
-      desc: 'Флот на слоте 6. «Альфа» через 6 ход., «Домой» через 14, «Бета» — через 22. Ждать или жечь манёвр? Неистраченное копится.',
+      desc: 'Флот на слоте 6. «Альфа» через 6 ход., «Домой» через 14, «Бета» — через 22. Ждать или жечь манёвр? Остаток не копится — рывок покупается грантом.',
       setup: () => { const s = m.makeSystem({ terrain: false }); s.fleet.slot = 6; return s; },
       steps: s => [
-        { label: 'Ход (едем)', note: 'Бейдж на каждом гейте — время подачи верхом. «Бета» далеко: решаем жечь МП.',
+        { label: 'Ход (едем)', note: 'Бейдж на каждом гейте — время подачи верхом. «Бета» далеко: решаем жечь манёвр.',
           act: st => m.endTurn(st) },
-        { label: 'Ещё ход (манёвр копится в банк)', act: st => m.endTurn(st) },
+        { label: 'Ещё ход (приток плоский: 18, остаток сгорел)', act: st => m.endTurn(st) },
+        { label: 'Грант +6 сейчас (HoMM-стиль)', note: 'Разовый грант — сразу в кошелёк, несгоранное сгорит при утреннем притоке. Рывок теперь покупается, а не копится.',
+          act: st => m.grantMp(st, 6) },
         { label: 'Прыжок +9 слотов (9 МП)', act: st => m.hopAlong(st, 9) },
         { label: 'Прыжок +3 слота (3 МП) — гейт «Бета»', act: st => m.hopAlong(st, 3) },
         { label: 'Отчалить через «Бету»', act: st => m.depart(st, 'beta') },
@@ -805,12 +1233,12 @@ window.BoardModel = (function () {
     },
     {
       id: 's4', title: '4 · Трал',
-      desc: 'Обломки скрыты. Едь верхом — сенсорная сеть сама заметит и соберёт. Ноль кнопок, чистое «сетью повёл».',
+      desc: 'Обломки видны сразу — но подобрать может только сенсорная сеть. Едь верхом так, чтобы веер прошёл по ним: подберёт сам. Ноль кнопок, чистое «сетью повёл».',
       setup: () => {
         const s = m.makeSystem({ terrain: false });
         s.fleet.ring = 2; s.fleet.slot = 30;
         const x = s.objects.find(o => o.id === 'X1');
-        x.ring = 4; x.slot = 6; x.revealed = false;
+        x.ring = 4; x.slot = 6;
         return s;
       },
       steps: s => [
@@ -833,21 +1261,21 @@ window.BoardModel = (function () {
     },
     {
       id: 's6', title: '6 · Угрозы',
-      desc: 'Красные секторы — зоны угроз. Проход только с боем: пока без сцены боя — автопобеда, но бой съедает остаток хода (двигайся сначала, дерись под конец). Верхом в лоб не суйся — зона сама догонит.',
+      desc: 'Красные секторы — зоны угроз. Проход только с боем: пока без сцены боя — автопобеда, и манёвр бой не съедает (v10.5) — дерись когда удобно. Верхом в лоб не суйся — зона сама догонит.',
       setup: () => {
         const s = m.makeSystem({ terrain: false });
         s.fleet.ring = 0; s.fleet.slot = 12; s.fleet.mp = 30; // прямо над станцией (R1, −30°)
         return s;
       },
       steps: s => [
-        { label: 'Нырок на 3 полосы — сквозь станцию (бой!)', note: 'Спираль обрывается на первом же кольце угрозы, посадка ровно в точку клика. Бой не стоит МП — он съедает остаток хода.',
+        { label: 'Нырок на 3 полосы — сквозь станцию (бой!)', note: 'Спираль обрывается на первом же кольце угрозы, посадка ровно в точку клика. Бой не стоит МП и не съедает остаток хода.',
           act: st => m.hopCross(st, 3, 6) },
-        { label: 'Ход: копилка после боя', note: 'Бой обнулил манёвр — банк даёт 18. Станция снята одним заходом (пока бой — автопобеда).',
+        { label: 'Ход: приток после боя', note: 'Манёвр после боя уцелел, но приток не копится: утром снова ровно 18. Станция снята одним заходом (пока бой — автопобеда).',
           act: st => m.endTurn(st) },
         { label: 'Прыжок по кольцу +4', act: st => m.hopAlong(st, 4) },
         { label: 'Ход: сенсорная сеть вскрывает рейдера', note: 'Трал заметил угрозу раньше, чем зона накрыла: красный сектор на внутренней отмели.',
           act: st => m.endTurn(st) },
-        { label: 'Спуск на 2 полосы — снять рейдера', note: 'Дуга садится ровно в точку клика: бой на посадке, ход окончен.',
+        { label: 'Спуск на 2 полосы — снять рейдера', note: 'Дуга садится ровно в точку клика: бой на посадке, манёвр сохраняется.',
           act: st => m.hopCross(st, 3, 24) },
       ],
       assert: s => !s.hostiles.find(h => h.id === "ST1").alive && !s.hostiles.find(h => h.id === "RD1").alive,
@@ -870,16 +1298,16 @@ window.BoardModel = (function () {
           act: st => m.hopAlong(st, 7) },
         { label: 'Поток в лоб: +10 слотов за 16 МП', note: 'Шесть слотов астероидов по 2 МП (1+1). На своём кольце поток не переждёшь — темпы равны; обходи по чужому кольцу или плати.',
           act: st => m.hopAlong(st, 10) },
-        { label: 'Ход: конвейер бесплатно везёт в потоке', note: 'Верхом рельеф не тарифицируется — ехать сквозь астероиды можно, платить надо за манёвр.',
+        { label: 'Ход: конвейер бесплатно везёт в потоке', note: 'Верхом рельеф не тарифицируется — ехать сквозь астероиды можно, платить надо за манёвр. Несгоренные 12 сгорают: утренний приток снова 18.',
           act: st => m.endTurn(st) },
         { label: 'Спираль на 2 полосы НАД потоком: 13 МП', note: 'Дуга платит за каждое кольцо под рельефом: 12 за курс + 1 за проход над астероидами среднего кольца. Посадка — слот 27.',
           act: st => m.hopCross(st, 3, 27) },
       ],
-      assert: s => s.fleet.ring === 3 && s.fleet.slot === 27 && s.fleet.mp === 17,
+      assert: s => s.fleet.ring === 3 && s.fleet.slot === 27 && s.fleet.mp === 5,
     },
     {
       id: 's8', title: '8 · Чёрная дыра',
-      desc: 'Центральный объект гнёт правила. Дыра: падать внутрь −1 МП/полоса, бежать наружу +1, удержание 5 МП, добыча ×1.5. Дешёвое падение — залог дорогого побега.',
+      desc: 'Центральный объект гнёт правила. Дыра: падать внутрь −1 МП/полоса, бежать наружу +1, удержание 5 МП, добыча ×1.5, приток −6 (всего 12). Дешёвое падение — залог дорогого побега: рывок покупается грантом.',
       setup: () => {
         const s = m.makeSystem({ star: 'blackhole', terrain: false });
         s.fleet.ring = 1; s.fleet.slot = 25;
@@ -889,16 +1317,18 @@ window.BoardModel = (function () {
         { label: 'Падение: 2 полосы вниз за 10 МП', note: 'Гравитация помогает: каждая полоса к звезде −1 (5 вместо 6). Прямой курс, посадка — слот 15.',
           act: st => m.hopCross(st, 3, 15) },
         { label: 'Побег сразу? Нужно 14 — не хватает', allowFail: true,
-          note: 'Наружу каждая полоса +1 (7 вместо 6). Остаток 8 МП — дыра не отпускает за один ход. Отказ — часть урока: идём копить.',
+          note: 'Наружу каждая полоса +1 (7 вместо 6). Остаток 8 МП — дыра не отпускает за один ход. Отказ — часть урока: копилки больше нет.',
           act: st => m.hopCross(st, 1) },
-        { label: 'Держаться у дыры: −5 МП (не 3!)', note: 'Удержание против гравитации дороже. После хода в банке 21.',
+        { label: 'Временный грант: +6 к притоку на 3 хода', note: 'Разовым грантом рывок не купить: приток дыры всего 12. Временный поднимает его до 18 — грант как «двигатель на прокат».',
+          act: st => m.grantMpTemp(st, 6, 3) },
+        { label: 'Держаться у дыры: −5 МП (не 3!)', note: 'Удержание против гравитации дороже. После хода в кошельке 18 (12 дыры + 6 гранта).',
           act: st => { m.setRiding(st, false); return m.endTurn(st); } },
         { label: 'Побег диагональю через гравмост: 7 МП', note: 'Закладываем дугу +30° — и попадаем на мост Гиганта V (полоса за 1). Побег дорог, но планета сбрасывает цену.',
           act: st => m.hopCross(st, 1, 30) },
-        { label: 'Ход: уходим верхом, банк 32', note: 'Станция уже накрыла бы стоячего — едь дальше. Добыча у дыры, кстати, ×1.5 (свободная игра).',
+        { label: 'Ход: уходим верхом (грант ещё дышит)', note: 'Станция уже накрыла бы стоячего — едь дальше. Добыча у дыры, кстати, ×1.5 (свободная игра).',
           act: st => { m.setRiding(st, true); return m.endTurn(st); } },
       ],
-      assert: s => s.fleet.ring === 1 && s.fleet.slot === 42 && s.fleet.mp === 32 && s.hostiles[0].alive,
+      assert: s => s.fleet.ring === 1 && s.fleet.slot === 42 && s.fleet.mp === 18 && s.hostiles[0].alive,
     },
   ];
 
@@ -914,7 +1344,7 @@ window.BoardModel = (function () {
     const fa = m.fleetAngle(s);
     let inc = 0;
     for (const o of s.objects) {
-      if (o.kind === 'deposit' && o.revealed && !o.gone &&
+      if (o.kind === 'deposit' && !o.gone &&
           m.angDist(fa, m.slotAngle(s, o.ring, o.slot)) <= m.sensorReach(s)) inc += Math.round(o.rate * (m.starMods(s).incomeMul || 1));
     }
     return inc;
@@ -930,9 +1360,20 @@ window.BoardModel = (function () {
       ' <span style="color:#8fa0b8;font-weight:400">' + sm.hint + '</span>';
     document.getElementById('stMode').textContent = f.riding ? 'верхом (бесплатно)' : 'удержание (' + m.holdCost(s) + ' МП/ход)';
     document.getElementById('btnHold').textContent = 'Держаться (' + m.holdCost(s) + ' МП)';
-    const cap = f.mpMax * (sm.bankMul != null ? sm.bankMul : 2);
+    const nextInc = m.mpRefill(s, s.turn + 1);
     document.getElementById('stMp').innerHTML =
-      f.mp + ' МП <span style="color:#8fa0b8;font-weight:400">(+' + f.mpMax + '/ход · банк до ' + cap + ')</span>';
+      f.mp + ' МП <span style="color:#8fa0b8;font-weight:400">(приток +' + nextInc + '/ход' +
+      (sm.pulse ? ' · пульс ' + sm.pulse.join('/') : '') + ')</span>' +
+      (s.grants.length ? ' <span style="color:#3fb950">(грант ' +
+        s.grants.map(g => '+' + g.amount + '×' + g.turns + 'х').join(' ') + ')</span>' : '');
+    const rt = document.getElementById('stRoute');
+    if (s.route && !f.departed) {
+      const t = m.routeTarget(s);
+      const p = m.planRoute(s, t.ring, t.slot);
+      rt.textContent = (t.name ? '«' + t.name + '» · ' : '') + 'R' + t.ring + ' слот ' + t.slot +
+        (t.name ? ' (едет) · ' : ' · ') +
+        (p.ok ? p.cost + ' МП' + (p.cost > f.mp ? ' (−' + (p.cost - f.mp) + ')' : '') : (p.msg ? 'не проехать без боя' : 'окно ушло'));
+    } else rt.textContent = '—';
     document.getElementById('stCredits').textContent = s.credits;
     document.getElementById('stIncome').textContent = '+' + incomeNow(s) + ' / ход';
     document.getElementById('btnRide').classList.toggle('on', f.riding);
@@ -988,7 +1429,7 @@ window.BoardModel = (function () {
       }
     }
     for (const o of state.objects) {
-      if (!o.revealed || o.gone || o.taken) continue;
+      if (o.gone || o.taken) continue;
       const p = tokenAt(o, k);
       ctx.strokeStyle = '#e3b341';
       ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, m.TAU); ctx.stroke();
@@ -1119,14 +1560,20 @@ window.BoardModel = (function () {
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
     }
-    // гейты (мировые, на внешнем кольце)
+    // гейт-сектора (v10.9): скоба-дуга на 3 слота внешнего кольца,
+    // насечка — центр сектора, шов лана (слот прибытия)
     for (const gate of s.gates) {
       const p = pos(0, gate.slot, 0);
+      const a = p.a, rr = s.rings[0].radius;
+      const half = 1.5 * m.TAU / s.rings[0].slots; // 3 слота → ±7.5°
       ctx.strokeStyle = '#c9d4e3';
       ctx.lineWidth = 2;
-      const a = p.a, rr = s.rings[0].radius;
-      ctx.beginPath(); ctx.arc(CX, CY, rr + 12, a - 0.055, a + 0.055); ctx.stroke();
-      ctx.beginPath(); ctx.arc(CX, CY, rr - 12, a - 0.055, a + 0.055); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX, CY, rr + 12, a - half, a + half); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX, CY, rr - 12, a - half, a + half); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(CX + Math.cos(a) * (rr - 12), CY + Math.sin(a) * (rr - 12));
+      ctx.lineTo(CX + Math.cos(a) * (rr + 12), CY + Math.sin(a) * (rr + 12));
+      ctx.stroke();
       const eta = (s.fleet.ring === 0 && !s.fleet.departed) ? m.gateEta(s, gate) : { turns: null };
       const lbl = gate.name + (eta.turns != null ? ' · ' + (eta.turns === 0 ? 'здесь' : eta.turns + ' ход.') : '');
       const tx = CX + Math.cos(a) * (rr + 30), ty = CY + Math.sin(a) * (rr + 30);
@@ -1149,7 +1596,7 @@ window.BoardModel = (function () {
 
     // объекты
     for (const o of s.objects) {
-      if (!o.revealed || o.gone || (o.taken && o.kind !== 'deposit')) continue;
+      if (o.gone || (o.taken && o.kind !== 'deposit')) continue;
       const p = tokenAt(o, 0);
       if (o.kind === 'deposit') {
         ctx.strokeStyle = '#e3b341'; ctx.lineWidth = 2;
@@ -1273,16 +1720,9 @@ window.BoardModel = (function () {
       spiralStroke(s.lastCross.from.ring, s.lastCross.from.slot,
                    s.lastCross.to.ring, s.lastCross.to.slot);
     }
-    // превью спирали на ховере любого другого кольца (до клика)
-    if (hover && scrub === 0 && !s.fleet.departed && Math.abs(hover.ringId - s.fleet.ring) >= 1) {
-      const at = m.crossCostAt(s, hover.ringId, hover.slot);
-      ctx.strokeStyle = !at.ok ? 'rgba(139,152,171,0.35)'
-        : at.cost <= s.fleet.mp ? 'rgba(136,187,255,0.8)' : 'rgba(230,120,120,0.7)';
-      ctx.lineWidth = 2;
-      if (!at.ok) ctx.setLineDash([4, 4]);
-      spiralStroke(s.fleet.ring, s.fleet.slot, hover.ringId, hover.slot);
-      ctx.setLineDash([]);
-    }
+    // зафиксированный курс (v10): доступная часть — синим,
+    // остаток за пределами МП — красным пунктиром
+    drawRoute();
 
     drawGhost(scrub);
     if (scrub > 0) {
@@ -1310,19 +1750,96 @@ window.BoardModel = (function () {
     ctx.stroke();
   }
   function TAUq(t) { return t * m.TAU; }
+  // Дуга прыжка по кольцу: от fromSlot на delta слотов.
+  function arcStroke(ringId, fromSlot, delta) {
+    const r = state.rings[ringId];
+    const a0 = m.slotAngle(state, ringId, fromSlot);
+    const a1 = m.slotAngle(state, ringId, m.mod(fromSlot + delta, r.slots));
+    ctx.beginPath();
+    ctx.arc(CX, CY, r.radius, a0, a1, delta < 0);
+    ctx.stroke();
+  }
+
+  // Зафиксированный курс: маркер цели + ноги плана. Синее — исполнимо
+  // в этот ход; красный пунктир — за пределами МП, причём начинается
+  // ровно в точке исчерпания МП, а не с начала «дорогой» ноги (v10.10).
+  function drawRoute() {
+    const s = state, f = s.fleet;
+    if (!s.route || f.departed || scrub !== 0) return;
+    const t = m.routeTarget(s); // цель могла уехать с кольцом — рисуем её сегодня
+    const planKey = t.ring + ':' + t.slot + ':' + f.ring + ':' + f.slot + ':' + s.turn + ':' + s.planMode;
+    if (drawRoute._k !== planKey) { drawRoute._p = m.planRoute(s, t.ring, t.slot); drawRoute._k = planKey; }
+    const plan = drawRoute._p; // дешёвый поиск тяжеловат для каждого кадра
+    const tp = pos(t.ring, t.slot, 0);
+    const full = plan.ok && plan.cost <= f.mp;
+    ctx.strokeStyle = full ? '#58a6ff' : '#f0809a';
+    ctx.lineWidth = 2;
+    if (!full) ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(tp.x, tp.y - 13); ctx.lineTo(tp.x + 13, tp.y);
+    ctx.lineTo(tp.x, tp.y + 13); ctx.lineTo(tp.x - 13, tp.y); ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (!plan.ok) {
+      ctx.fillStyle = '#f0809a';
+      ctx.fillText(plan.msg || 'окно ушло — переставь', tp.x + 16, tp.y + 4);
+      return;
+    }
+    // Красный пунктир — ровно с точки, где кончаются МП (v10.10): вдоль
+    // дуги режем по-слотово модельной ценой (hopAlongCost — та же, что в
+    // плане); спираль атомарна, пол-перехода не оплатить — недоступная
+    // спираль красная с первой точки.
+    const blue = 'rgba(136,187,255,0.9)', red = 'rgba(240,128,154,0.85)';
+    let cum = 0, cur = { ring: f.ring, slot: f.slot };
+    for (const leg of plan.legs) {
+      const budget = f.mp - cum;
+      if (leg.kind === 'along') {
+        const step = Math.sign(leg.delta), nAbs = Math.abs(leg.delta);
+        let k = 0;
+        while (k < nAbs && m.hopAlongCost(s, step * (k + 1), cur.slot, cur.ring) <= budget) k++;
+        if (k > 0) {
+          ctx.strokeStyle = blue; ctx.lineWidth = 2.5; ctx.setLineDash([]);
+          arcStroke(cur.ring, cur.slot, step * k);
+        }
+        if (k < nAbs) {
+          ctx.strokeStyle = red; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+          arcStroke(cur.ring, m.mod(cur.slot + step * k, state.rings[cur.ring].slots), step * (nAbs - k));
+          ctx.setLineDash([]);
+        }
+        cur = { ring: cur.ring, slot: m.mod(cur.slot + leg.delta, state.rings[cur.ring].slots) };
+      } else {
+        const ok = leg.cost <= budget;
+        ctx.strokeStyle = ok ? blue : red;
+        ctx.lineWidth = ok ? 2.5 : 2;
+        if (!ok) ctx.setLineDash([6, 5]);
+        spiralStroke(cur.ring, cur.slot, leg.ring, leg.slot);
+        ctx.setLineDash([]);
+        cur = { ring: leg.ring, slot: leg.slot };
+      }
+      cum += leg.cost;
+    }
+    const lack = plan.cost - f.mp;
+    ctx.fillStyle = lack > 0 ? '#f0809a' : '#58a6ff';
+    ctx.font = 'bold 12px system-ui';
+    ctx.fillText(plan.cost + ' МП' + (lack > 0 ? ' · −' + lack + ' (~' +
+      Math.max(1, Math.ceil(lack / Math.max(1, m.mpRefill(s, s.turn + 1)))) + ' х.)' : ''), tp.x + 16, tp.y - 8);
+    ctx.font = '12px system-ui';
+  }
 
   // ---------- взаимодействие ----------
   function polarToSlot(x, y) {
     const dx = x - CX, dy = y - CY;
     const r = Math.hypot(dx, dy);
     const a = m.mod(Math.atan2(dy, dx), m.TAU);
+    let bestRing = null, bestD = 37; // полосы ±36 перекрываются между соседними
+    // кольцами — атрибуция ближайшему (баг «внутренней отмели»)
     for (const ring of state.rings) {
-      if (Math.abs(r - ring.radius) > 36) continue;
-      const raw = (a + m.TAU / 4) * ring.slots / m.TAU;
-      const slot = m.mod(Math.round(raw), ring.slots);
-      return { ringId: ring.id, slot };
+      const d = Math.abs(r - ring.radius);
+      if (d < bestD) { bestD = d; bestRing = ring; }
     }
-    return null;
+    if (!bestRing) return null;
+    const raw = (a + m.TAU / 4) * bestRing.slots / m.TAU;
+    return { ringId: bestRing.id, slot: m.mod(Math.round(raw), bestRing.slots) };
   }
 
   function tokensAt(ringId, slot) {
@@ -1331,8 +1848,8 @@ window.BoardModel = (function () {
     for (const h of s.hostiles) if (h.alive && h.revealed && h.ring === ringId && h.slot === slot) out.push(h.name + ' (угроза, прочность ' + h.power + ')');
     const ter = m.terrainAt(s, ringId, slot);
     if (ter) out.push(ter.name + ' (' + (ter.toll > 0 ? '+' : '−') + Math.abs(ter.toll) + ' МП за слот прохода)');
-    for (const o of s.objects) if (o.revealed && !o.gone && o.ring === ringId && o.slot === slot) out.push(o.name);
-    for (const g of s.gates) if (ringId === 0 && g.slot === slot) out.push('гейт «' + g.name + '»');
+    for (const o of s.objects) if (!o.gone && o.ring === ringId && o.slot === slot) out.push(o.name);
+    for (const g of s.gates) if (ringId === 0 && m.inGateSector(s, g, slot)) out.push('гейт-сектор «' + g.name + '»');
     return out;
   }
 
@@ -1340,14 +1857,16 @@ window.BoardModel = (function () {
     const s = state, f = s.fleet;
     const lines = ['<b>' + s.rings[h.ringId].name + ' · слот ' + h.slot + '</b>'];
     const toks = tokensAt(h.ringId, h.slot);
-    const th = m.threatAt(s, h.ringId, m.slotAngle(s, h.ringId, h.slot));
-    if (th && th.revealed) {
-      const plan = m.attackPlan(s, th);
-      const eta = plan ? null : m.attackEta(s, th);
-      lines.push('<b style="color:#f85149">Зона угрозы: ' + th.name + '</b> — бой: автопобеда (пока без сцены), ход окончен · ' +
-        (plan ? '<b>клик — атака</b>' + (plan.cost ? ' (курс ' + plan.cost + ' МП)' : '')
-              : eta ? 'дуга дотянется через ' + (eta.turns === 0 ? 'ход' : eta.turns + ' ход. верхом') + ', клик — план'
-                    : 'дуга не сойдётся — иди прыжками'));
+    const ths = m.threatsAt(s, h.ringId, m.slotAngle(s, h.ringId, h.slot)).filter(t => t.revealed);
+    if (ths.length) {
+      const plan = m.attackPlan(s, ths[0]);
+      const eta = plan ? null : m.attackEta(s, ths[0]);
+      lines.push('<b style="color:#f85149">Зона угрозы: ' + ths.map(t => t.name).join(' + ') + '</b>' +
+        (ths.length > 1 ? ' — перекрытие: бой со всеми' : '') +
+        ' — бой: автопобеда (пока без сцены), манёвр сохраняется · ' +
+        (plan ? '<b>клик — курс атаки, повторный — идти</b>' + (plan.cost ? ' (курс ' + plan.cost + ' МП)' : '')
+              : eta ? 'прямой дуге — ' + (eta.turns === 0 ? 'уже' : eta.turns + ' ход. верхом') + '; клик построит план в обход'
+                    : 'дуга не сойдётся — клик построит план прыжками'));
     }
     if (toks.length) lines.push('Здесь: ' + toks.join(', '));
     if (f.departed) { lines.push('Флот уже ушёл.'); return lines.join('<br>'); }
@@ -1359,7 +1878,7 @@ window.BoardModel = (function () {
       lines.push('Прыжок ' + (d > 0 ? '+' : '') + d + ' слот. (' + dir + '): <b>' + cost + ' МП</b>' +
                  (cost !== Math.abs(d) * (Math.sign(d) === Math.sign(s.rings[f.ring].tempo) ? m.COST.WITH : m.COST.AGAINST)
                    ? ' <span style="color:#9c8f7a">(рельеф в цене)</span>' : '') +
-                 (cost > f.mp ? ' — не хватает' : ''));
+                 (cost > f.mp ? ' — не хватает, курс строится: доедем потом' : ''));
     } else {
       const n = Math.abs(h.ringId - f.ring);
       const at = m.crossCostAt(s, h.ringId, h.slot);
@@ -1371,7 +1890,7 @@ window.BoardModel = (function () {
                        (n > 1 ? ' (' + Math.round(at.deltaDeg / n) + '° на полосу)' : '')
                      : ' — прямой курс (самый дорогой)') +
                    (at.toll ? ' + рельеф ' + (at.toll > 0 ? '+' : '−') + Math.abs(at.toll) + ' (' + at.terrains.map(t => t.name).join(' + ') + ')' : '') +
-                   (at.cost > f.mp ? ' — не хватает' : ''));
+                   (at.cost > f.mp ? ' — не хватает, курс строится: доедем потом' : ''));
       } else {
         lines.push('Вне окна перехода (' + (at.deltaDeg > 0 ? '+' : '') + at.deltaDeg +
                    '°): ' + (n === 1 ? 'до +30° по вращению или −15° против'
@@ -1390,13 +1909,14 @@ window.BoardModel = (function () {
       }
     }
     for (const g of s.gates) {
-      if (h.ringId === 0 && g.slot === h.slot) {
+      if (h.ringId === 0 && m.inGateSector(s, g, h.slot)) {
         const eta = m.gateEta(s, g);
-        lines.push('Отчал: ' + (eta.turns === 0 ? '<b>можно сейчас</b>' : 'верхом ' + eta.msg));
+        lines.push('Отчал из сектора «' + g.name + '»: ' +
+          (eta.turns === 0 ? '<b>можно сейчас</b> (слоты ' + m.gateSector(s, g).join('·') + ')' : eta.msg));
       }
     }
     for (const o of s.objects) {
-      if (o.ring === h.ringId && o.slot === h.slot && o.revealed && !o.gone && !o.taken) {
+      if (o.ring === h.ringId && o.slot === h.slot && !o.gone && !o.taken) {
         const eta = m.targetEta(s, o);
         lines.push(eta.turns != null
           ? 'Сеть достанет: ' + (eta.turns === 0 ? '<b>уже в зоне</b>' : 'через ' + eta.turns + ' ход. (если верхом)')
@@ -1423,33 +1943,48 @@ window.BoardModel = (function () {
   });
   cv.addEventListener('mouseleave', () => { hover = null; tooltip.style.display = 'none'; draw(); });
 
+  // Двухкликовая модель (ADR-0001 на доске): клик по слоту — курс,
+  // повторный клик в ту же точку — идти. ПКМ или клик мимо колец — сброс.
   cv.addEventListener('click', () => {
-    if (!hover || !scenario) return;
+    if (!scenario) return;
     const s = state, f = s.fleet;
+    if (!hover) { // клик мимо колец — сбросить курс
+      if (s.route) { m.clearRoute(s); afterAction(); }
+      return;
+    }
     if (f.departed) { toast('Флот уже ушёл из системы'); return; }
-    // клик по вскрытой зоне угрози: летим РОВНО в точку клика (атака на посадке);
-    // точка вне окна — честный ETA вместо подмены маршрута
-    const th = m.threatAt(s, hover.ringId, m.slotAngle(s, hover.ringId, hover.slot));
-    if (th && th.revealed && hover.ringId !== f.ring) {
-      const cc = m.crossCostAt(s, hover.ringId, hover.slot);
-      if (cc.ok) { doAct(() => m.hopCross(s, hover.ringId, hover.slot)); return; }
-      const eta = m.attackEta(s, th);
-      toast(eta
-        ? 'Эта точка зоны вне окна дуги: верхом дотянешься через ' + eta.turns + ' ход. — или кликни по голубому вееру в зоне'
-        : 'Дуга не сойдётся — иди прыжками или держи курс');
+    if (hover.ringId === f.ring && hover.slot === f.slot) { // свой слот: гейт-сектор — отвал
+      const gate = s.gates.find(g => f.ring === 0 && m.inGateSector(s, g, f.slot));
+      if (gate) doAct(() => m.depart(s, gate.id));
       return;
     }
-    if (hover.ringId === f.ring && hover.slot === f.slot) {
-      const gate = s.gates.find(g => g.slot === f.slot && f.ring === 0);
-      if (gate) { doAct(() => m.depart(s, gate.id)); }
+    const samePin = s.route && s.route.ring === hover.ringId && s.route.slot === hover.slot;
+    if (!samePin) { // первый клик: построить/переставить курс (даже когда МП не хватает)
+      const res = m.pinRoute(s, hover.ringId, hover.slot);
+      if (!res.ok) { toast(res.msg); return; }
+      if (!res.plan.ok) { // цель недостижима без боя (блокада?) — курс держим, ждём прорыва
+        toast((res.follow ? '«' + res.follow + '»: ' : '') + (res.plan.msg || 'Не проехать без боя'));
+        afterAction();
+        return;
+      }
+      const lack = res.plan.cost - f.mp;
+      toast('Курс: ' + (res.follow ? '«' + res.follow + '» — едет с кольцом · ' : '') +
+        res.plan.cost + ' МП' + (lack > 0
+        ? ' — не хватает ' + lack + ', доедем за ~' +
+          Math.max(1, Math.ceil(lack / Math.max(1, m.mpRefill(s, s.turn + 1)))) + ' х.'
+        : '') + ' · повторный клик — идти');
+      afterAction();
       return;
     }
-    if (hover.ringId === f.ring) {
-      const d = m.shortestDelta(s, f.ring, f.slot, hover.slot);
-      doAct(() => m.hopAlong(s, d));
-    } else {
-      doAct(() => m.hopCross(s, hover.ringId, hover.slot));
-    }
+    doAct(() => { // повторный клик: исполнить насколько хватает МП
+      const r = m.followRoute(s);
+      if (r && r.ok !== false && r.msg) toast(r.msg);
+      return r;
+    });
+  });
+  cv.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (state && state.route && !state.fleet.departed) { m.clearRoute(state); afterAction(); }
   });
 
   function doAct(fn) {
@@ -1459,9 +1994,25 @@ window.BoardModel = (function () {
   }
 
   // ---------- кнопки ----------
-  document.getElementById('btnEnd').onclick = () => doAct(() => m.endTurn(state));
+  document.getElementById('btnEnd').onclick = () => doAct(() => {
+    const ev = m.endTurn(state);
+    if (Array.isArray(ev) && ev.length && ev[ev.length - 1].msg) toast(ev[ev.length - 1].msg);
+    return ev;
+  });
   document.getElementById('btnRide').onclick = () => { m.setRiding(state, true); afterAction(); };
   document.getElementById('btnHold').onclick = () => { m.setRiding(state, false); afterAction(); };
+  document.getElementById('btnGrantNow').onclick = () => doAct(() => m.grantMp(state, 6));
+  document.getElementById('btnGrantTemp').onclick = () => doAct(() => m.grantMpTemp(state, 6, 3));
+  const btnPlan = document.getElementById('btnPlanMode');
+  btnPlan.onclick = () => {
+    const cheap = state.planMode !== 'cheap';
+    m.setPlanMode(state, cheap ? 'cheap' : 'composite');
+    btnPlan.textContent = cheap ? 'План: дешёвый МП' : 'План: составной';
+    toast(cheap
+      ? 'Планировщик: минимум МП — поиск по графу; зоны угроз непроходимы (клик в зону — атака); нет пути — скажет'
+      : 'Планировщик: составной — выравниватели + спираль + доводка; зоны тоже обходит (не выходит фигурой — включит поиск)');
+    afterAction();
+  };
   document.getElementById('btnReset').onclick = () => loadScenario(scenario.id);
   const scrubEl = document.getElementById('scrub');
   scrubEl.oninput = () => { scrub = +scrubEl.value; document.getElementById('scrubVal').textContent = '+' + scrub; draw(); };
@@ -1556,6 +2107,22 @@ window.BoardModel = (function () {
   });
 
   starPick.querySelector('button').classList.add('on');
+
+  // ---------- выбор флота (v10): манёвренность = приток МП/ход ----------
+  const fleetPick = document.getElementById('fleetPick');
+  [['тугоход', 12], ['штатный', m.MP_RATE], ['резвый', 24]].forEach(([label, rate]) => {
+    const b = document.createElement('button');
+    b.textContent = '◆ ' + label + ' (' + rate + ' МП/ход)';
+    b.dataset.rate = rate;
+    b.onclick = () => {
+      freeRate = rate;
+      fleetPick.querySelectorAll('button').forEach(x => x.classList.toggle('on', +x.dataset.rate === rate));
+      loadScenario('free');
+      toast('Флот: ' + label + ' — приток ' + rate + ' МП/ход, звезда добавит флэт сверху');
+    };
+    fleetPick.appendChild(b);
+  });
+  fleetPick.querySelector('button[data-rate="' + m.MP_RATE + '"]').classList.add('on');
   loadScenario('free');
 })();
 </script>
